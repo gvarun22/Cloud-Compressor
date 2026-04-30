@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <title>Cloud Compressor</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #f2f2f7;
+      color: #1c1c1e;
+      min-height: 100dvh;
+      padding-bottom: calc(66px + env(safe-area-inset-bottom));
+    }
+
+    header {
+      background: rgba(255,255,255,0.92);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      padding: 14px 16px;
+      padding-top: calc(14px + env(safe-area-inset-top));
+      border-bottom: 0.5px solid #c6c6c8;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    header h1 { font-size: 17px; font-weight: 600; }
+
+    .settings-btn {
+      background: none; border: none;
+      color: #007aff; font-size: 15px; cursor: pointer;
+      font-family: inherit;
+    }
+
+    /* Tabs */
+    .tab-content { display: none; padding: 16px; }
+    .tab-content.active { display: block; }
+
+    .tab-bar {
+      position: fixed; bottom: 0; left: 0; right: 0;
+      background: rgba(249,249,249,0.94);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-top: 0.5px solid #c6c6c8;
+      display: flex;
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+
+    .tab-btn {
+      flex: 1; padding: 8px 4px; background: none; border: none;
+      cursor: pointer; display: flex; flex-direction: column;
+      align-items: center; gap: 2px;
+      color: #8e8e93; font-size: 10px; font-family: inherit;
+    }
+    .tab-btn.active { color: #007aff; }
+    .tab-btn svg { width: 26px; height: 26px; }
+
+    /* Cards */
+    .card {
+      background: white; border-radius: 12px;
+      margin-bottom: 12px; overflow: hidden;
+    }
+
+    /* Buttons */
+    .btn {
+      display: block; width: 100%; padding: 14px;
+      border: none; border-radius: 12px;
+      font-size: 17px; font-weight: 600;
+      cursor: pointer; text-align: center;
+      font-family: inherit; text-decoration: none;
+    }
+    .btn-primary { background: #007aff; color: white; }
+    .btn-primary:active { background: #0062cc; }
+    .btn-primary:disabled { background: #aeaeb2; }
+    .btn-secondary { background: #e5e5ea; color: #1c1c1e; }
+    .btn-secondary:active { background: #d1d1d6; }
+
+    .btn-sm {
+      display: inline-block; width: auto;
+      padding: 7px 16px; font-size: 14px; font-weight: 500;
+      border-radius: 8px;
+    }
+    .btn-green { background: #34c759; color: white; }
+    .btn-gray  { background: #e5e5ea; color: #1c1c1e; }
+
+    /* File items */
+    .file-item {
+      padding: 14px 16px;
+      border-bottom: 0.5px solid #f2f2f7;
+    }
+    .file-item:last-child { border-bottom: none; }
+    .file-name { font-size: 15px; font-weight: 500; word-break: break-all; }
+    .file-meta { font-size: 13px; color: #8e8e93; margin-top: 2px; }
+    .file-status { font-size: 13px; margin-top: 4px; }
+    .status-pending { color: #ff9500; }
+    .status-ok  { color: #34c759; }
+    .status-err { color: #ff3b30; }
+
+    .progress-bar {
+      height: 4px; background: #e5e5ea; border-radius: 2px;
+      margin-top: 8px; overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%; background: #007aff; border-radius: 2px;
+      transition: width 0.15s ease; width: 0%;
+    }
+
+    /* Job items */
+    .job-item {
+      padding: 14px 16px;
+      border-bottom: 0.5px solid #f2f2f7;
+    }
+    .job-item:last-child { border-bottom: none; }
+    .job-row { display: flex; justify-content: space-between; align-items: flex-start; }
+    .job-name { font-size: 15px; font-weight: 500; flex: 1; margin-right: 8px; word-break: break-all; }
+    .job-savings { font-size: 13px; font-weight: 600; color: #34c759; white-space: nowrap; }
+    .job-larger  { color: #ff9500; }
+    .job-meta { font-size: 13px; color: #8e8e93; margin: 4px 0 10px; }
+    .job-actions { display: flex; gap: 8px; }
+    .job-hint {
+      font-size: 12px; color: #8e8e93;
+      margin-top: 8px; line-height: 1.4;
+    }
+
+    /* Empty state */
+    .empty {
+      text-align: center; padding: 48px 24px; color: #8e8e93;
+    }
+    .empty-title { font-size: 17px; font-weight: 600; color: #1c1c1e; margin-bottom: 6px; }
+    .empty-sub { font-size: 15px; line-height: 1.4; }
+
+    /* Settings sheet */
+    .overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,0.4); z-index: 100;
+      align-items: flex-end;
+    }
+    .overlay.visible { display: flex; }
+
+    .sheet {
+      background: #f2f2f7; border-radius: 16px 16px 0 0;
+      width: 100%; padding: 8px 0;
+      padding-bottom: calc(16px + env(safe-area-inset-bottom));
+    }
+    .sheet-handle {
+      width: 36px; height: 4px; background: #c7c7cc;
+      border-radius: 2px; margin: 8px auto 16px;
+    }
+    .sheet-title {
+      font-size: 13px; font-weight: 600; color: #8e8e93;
+      text-transform: uppercase; letter-spacing: 0.5px;
+      padding: 0 16px; margin-bottom: 8px;
+    }
+    .sheet-card {
+      background: white; margin: 0 16px; border-radius: 12px; padding: 0;
+      margin-bottom: 16px; overflow: hidden;
+    }
+    .field-row {
+      padding: 12px 16px; display: flex;
+      align-items: center; gap: 12px;
+      border-bottom: 0.5px solid #f2f2f7;
+    }
+    .field-row:last-child { border-bottom: none; }
+    .field-label { font-size: 15px; color: #1c1c1e; min-width: 80px; }
+    .field-input {
+      flex: 1; border: none; outline: none; font-size: 15px;
+      font-family: inherit; color: #3a3a3c; text-align: right;
+      background: transparent;
+    }
+
+    #file-input { display: none; }
+
+    .section-label {
+      font-size: 13px; color: #8e8e93; font-weight: 400;
+      padding: 0 4px; margin-bottom: 8px; margin-top: 4px;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Cloud Compressor</h1>
+  <button class="settings-btn" onclick="showSettings()">Settings</button>
+</header>
+
+<!-- Upload tab -->
+<div id="tab-upload" class="tab-content active">
+  <div class="section-label">Select videos to send for compression. They will be encoded and available to download overnight.</div>
+  <div class="card" style="padding:16px; margin-top:8px">
+    <button class="btn btn-primary" id="select-btn" onclick="document.getElementById('file-input').click()">
+      Select Videos
+    </button>
+    <input id="file-input" type="file" accept="video/*" multiple>
+  </div>
+  <div id="upload-list"></div>
+</div>
+
+<!-- Jobs tab -->
+<div id="tab-jobs" class="tab-content">
+  <div class="card" style="padding:16px; margin-bottom:16px">
+    <button class="btn btn-secondary" onclick="loadJobs()">Check for Completed Jobs</button>
+  </div>
+  <div id="jobs-list">
+    <div class="empty">
+      <div class="empty-title">Nothing here yet</div>
+      <div class="empty-sub">Tap the button above to check if any videos are ready to download.</div>
+    </div>
+  </div>
+</div>
+
+<!-- Tab bar -->
+<div class="tab-bar">
+  <button class="tab-btn active" id="btn-upload" onclick="switchTab('upload')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+      <polyline points="17 8 12 3 7 8"/>
+      <line x1="12" y1="3" x2="12" y2="15"/>
+    </svg>
+    Upload
+  </button>
+  <button class="tab-btn" id="btn-jobs" onclick="switchTab('jobs')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+      <polyline points="7 10 12 15 17 10"/>
+      <line x1="12" y1="15" x2="12" y2="3"/>
+    </svg>
+    Downloads
+  </button>
+</div>
+
+<!-- Settings overlay -->
+<div id="settings-overlay" class="overlay" onclick="maybeHideSettings(event)">
+  <div class="sheet" onclick="event.stopPropagation()">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">Settings</div>
+    <div class="sheet-card">
+      <div class="field-row">
+        <label class="field-label" for="fn-key-input">Function Key</label>
+        <input id="fn-key-input" class="field-input" type="password"
+               placeholder="Paste key here"
+               autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false">
+      </div>
+    </div>
+    <div style="padding: 0 16px">
+      <button class="btn btn-primary" onclick="saveSettings()">Save</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const BASE = 'https://func-cloudcompress.azurewebsites.net/api';
+
+const getKey = () => localStorage.getItem('fnKey') || '';
+const headers = () => ({'x-functions-key': getKey()});
+
+function formatBytes(n) {
+  n = Number(n);
+  if (n >= 1073741824) return (n / 1073741824).toFixed(1) + ' GB';
+  if (n >= 1048576)    return (n / 1048576).toFixed(0) + ' MB';
+  return (n / 1024).toFixed(0) + ' KB';
+}
+
+// ── Tabs ─────────────────────────────────────────────────────────────────────
+function switchTab(name) {
+  ['upload', 'jobs'].forEach(t => {
+    document.getElementById('tab-' + t).classList.toggle('active', t === name);
+    document.getElementById('btn-' + t).classList.toggle('active', t === name);
+  });
+  if (name === 'jobs') loadJobs();
+}
+
+// ── Settings ─────────────────────────────────────────────────────────────────
+function showSettings() {
+  document.getElementById('fn-key-input').value = getKey();
+  document.getElementById('settings-overlay').classList.add('visible');
+}
+
+function maybeHideSettings(e) {
+  if (e.target === document.getElementById('settings-overlay'))
+    document.getElementById('settings-overlay').classList.remove('visible');
+}
+
+function saveSettings() {
+  const k = document.getElementById('fn-key-input').value.trim();
+  if (k) localStorage.setItem('fnKey', k);
+  document.getElementById('settings-overlay').classList.remove('visible');
+}
+
+// ── Upload ────────────────────────────────────────────────────────────────────
+document.getElementById('file-input').addEventListener('change', function () {
+  const files = Array.from(this.files);
+  this.value = '';
+  if (!getKey()) { showSettings(); return; }
+  files.forEach(uploadFile);
+});
+
+async function uploadFile(file) {
+  const uid = 'f' + Date.now() + Math.random().toString(36).slice(2);
+  const list = document.getElementById('upload-list');
+
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.innerHTML = `
+    <div class="file-item">
+      <div class="file-name">${file.name}</div>
+      <div class="file-meta">${formatBytes(file.size)}</div>
+      <div class="file-status status-pending" id="${uid}-s">Getting upload URL…</div>
+      <div class="progress-bar"><div class="progress-fill" id="${uid}-p"></div></div>
+    </div>`;
+  list.prepend(card);
+
+  const setStatus = (text, cls) => {
+    const el = document.getElementById(uid + '-s');
+    el.textContent = text;
+    el.className = 'file-status ' + cls;
+  };
+  const setBar = (pct, color) => {
+    const el = document.getElementById(uid + '-p');
+    el.style.width = pct + '%';
+    if (color) el.style.background = color;
+  };
+
+  try {
+    const r = await fetch(
+      `${BASE}/Get-UploadUrl?filename=${encodeURIComponent(file.name)}&photoId=`,
+      { headers: headers() }
+    );
+    if (!r.ok) throw new Error('Get-UploadUrl failed (' + r.status + ')');
+    const { uploadUrl } = await r.json();
+
+    setStatus('Uploading…', 'status-pending');
+
+    await new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('PUT', uploadUrl);
+      xhr.setRequestHeader('x-ms-blob-type', 'BlockBlob');
+      xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+      xhr.upload.onprogress = e => {
+        if (e.lengthComputable) setBar(Math.round(e.loaded / e.total * 100));
+      };
+      xhr.onload  = () => xhr.status < 300 ? resolve() : reject(new Error('Upload failed (' + xhr.status + ')'));
+      xhr.onerror = () => reject(new Error('Network error during upload'));
+      xhr.send(file);
+    });
+
+    setBar(100, '#34c759');
+    setStatus('Queued for compression', 'status-ok');
+  } catch (err) {
+    setBar(100, '#ff3b30');
+    setStatus(err.message, 'status-err');
+  }
+}
+
+// ── Downloads ─────────────────────────────────────────────────────────────────
+let _jobs = [];
+
+async function loadJobs() {
+  if (!getKey()) { showSettings(); return; }
+  const container = document.getElementById('jobs-list');
+  container.innerHTML = '<div class="empty"><div class="empty-sub">Loading…</div></div>';
+
+  try {
+    const r = await fetch(`${BASE}/Get-CompletedJobs`, { headers: headers() });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const jobs = await r.json();
+
+    if (!jobs.length) {
+      container.innerHTML = `
+        <div class="empty">
+          <div class="empty-title">No completed jobs</div>
+          <div class="empty-sub">Videos may still be encoding, or nothing has been uploaded yet.</div>
+        </div>`;
+      return;
+    }
+
+    _jobs = jobs;
+    container.innerHTML = '';
+    const card = document.createElement('div');
+    card.className = 'card';
+
+    jobs.forEach(job => {
+      const savings = job.originalSizeBytes > 0
+        ? Math.round((1 - job.compressedSizeBytes / job.originalSizeBytes) * 100) : 0;
+      const savingsBadge = savings > 0
+        ? `<div class="job-savings">${savings}% smaller</div>`
+        : savings < 0
+          ? `<div class="job-savings job-larger">${Math.abs(savings)}% larger</div>`
+          : '';
+
+      const el = document.createElement('div');
+      el.className = 'job-item';
+      el.id = 'job-' + job.jobId;
+      el.innerHTML = `
+        <div class="job-row">
+          <div class="job-name">${job.originalName || job.jobId}</div>
+          ${savingsBadge}
+        </div>
+        <div class="job-meta">${formatBytes(job.originalSizeBytes)} → ${formatBytes(job.compressedSizeBytes)}</div>
+        <div class="job-actions">
+          <button class="btn btn-primary btn-sm" onclick="downloadJob('${job.jobId}')">Download</button>
+          <button class="btn btn-gray btn-sm" onclick="acknowledge('${job.jobId}')">Done</button>
+        </div>
+        <div class="job-hint">File saves to Files → Downloads. Open it there, tap Share → Save Video to add to Photos. Then tap Done.</div>`;
+      card.appendChild(el);
+    });
+
+    container.appendChild(card);
+  } catch (err) {
+    container.innerHTML = `<div class="empty"><div class="empty-sub status-err">${err.message}</div></div>`;
+  }
+}
+
+function downloadJob(jobId) {
+  const job = _jobs.find(j => j.jobId === jobId);
+  const filename = (job && job.originalName) ? job.originalName : jobId;
+  const url = `${BASE}/Download-Job?jobId=${encodeURIComponent(jobId)}&code=${encodeURIComponent(getKey())}`;
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
+async function acknowledge(jobId) {
+  try {
+    const r = await fetch(
+      `${BASE}/Acknowledge-Job?jobId=${encodeURIComponent(jobId)}`,
+      { headers: headers() }
+    );
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const el = document.getElementById('job-' + jobId);
+    if (el) el.remove();
+  } catch (err) {
+    alert('Could not remove job: ' + err.message);
+  }
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+if (!getKey()) showSettings();
+</script>
+</body>
+</html>

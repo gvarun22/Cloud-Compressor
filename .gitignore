@@ -1,0 +1,27 @@
+# Build output
+functions/bin/
+functions/obj/
+
+# Real config — contains subscription ID. Copy resource-names.example.json and fill in values.
+config/resource-names.json
+
+# Azure Functions local settings — may contain connection strings
+local.settings.json
+
+# macOS
+.DS_Store
+
+# Visual Studio / Rider
+.vs/
+*.user
+
+# Claude Code local settings
+.claude/settings.local.json
+
+# Xcode
+xcuserdata/
+DerivedData/
+*.xccheckout
+*.moved-aside
+*.xcuserstate
+*.xcscmblueprint

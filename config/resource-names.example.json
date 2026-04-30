@@ -1,0 +1,9 @@
+{
+  "location": "centralus",
+  "subscriptionId": "00000000-0000-0000-0000-000000000000",
+  "keyVaultName": "kv-cloudcompress",
+  "storageAccountName": "stcloudcompress",
+  "containerRegistryName": "acrcloudcompress",
+  "functionAppName": "func-cloudcompress",
+  "resourceGroupName": "rg-cloud-compressor"
+}
