@@ -2,7 +2,6 @@ import Foundation
 
 final class Settings: ObservableObject {
     static let shared = Settings()
-    private init() {}
 
     // MARK: - Azure
 
@@ -43,11 +42,11 @@ final class Settings: ObservableObject {
     // MARK: - Encode settings
     // Must match the -metadata comment= value written by StartEncoding.cs.
     // If you change the FFmpeg command in Azure, update this string to match.
-    let encodeSettingsTag = "cloudcompressor:crf24:h265:veryfast"
+    let encodeSettingsTag = "cloudcompressor:crf24:h265:veryfast:hvc1"
 
     // MARK: - Init
 
-    init() {
+    private init() {
         let ud = UserDefaults.standard
         baseURL              = ud.string(forKey: "baseURL")          ?? "https://YOUR-FUNC.azurewebsites.net/api"
         functionKey          = ud.string(forKey: "functionKey")      ?? ""
