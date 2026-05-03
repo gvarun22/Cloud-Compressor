@@ -21,6 +21,9 @@ final class Settings {
     var maxConcurrentUploads: Int {
         didSet { set("maxConcurrentUploads", maxConcurrentUploads) }
     }
+    var maxUploadsPerSync: Int {
+        didSet { set("maxUploadsPerSync", maxUploadsPerSync) }
+    }
 
     // MARK: - Quiet window (background task only runs within this time range)
 
@@ -53,6 +56,7 @@ final class Settings {
         functionKey          = ud.string(forKey: "functionKey")      ?? ""
         autoSyncOnOpen       = ud.object(forKey: "autoSyncOnOpen")   == nil ? true : ud.bool(forKey: "autoSyncOnOpen")
         maxConcurrentUploads = ud.object(forKey: "maxConcurrentUploads") == nil ? 2 : ud.integer(forKey: "maxConcurrentUploads")
+        maxUploadsPerSync    = ud.object(forKey: "maxUploadsPerSync")    == nil ? 5 : ud.integer(forKey: "maxUploadsPerSync")
         quietWindowEnabled   = ud.bool(forKey: "quietWindowEnabled")
         quietWindowStartHour = ud.object(forKey: "quietWindowStartHour")   == nil ? 2 : ud.integer(forKey: "quietWindowStartHour")
         quietWindowStartMinute = ud.integer(forKey: "quietWindowStartMinute")

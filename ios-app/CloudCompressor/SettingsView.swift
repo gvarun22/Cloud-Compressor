@@ -29,6 +29,10 @@ struct SettingsView: View {
                         "Max concurrent uploads: \(settings.maxConcurrentUploads)",
                         value: $settings.maxConcurrentUploads, in: 1...5
                     )
+                    Stepper(
+                        "Max uploads per sync: \(settings.maxUploadsPerSync)",
+                        value: $settings.maxUploadsPerSync, in: 1...50
+                    )
                 } header: { Text("Sync Behaviour") }
                   footer: { Text("Background sync also runs automatically when idle on WiFi.") }
 

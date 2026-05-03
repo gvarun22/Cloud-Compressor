@@ -129,13 +129,14 @@ final class SyncEngine {
             return
         }
 
-        status = .running("Uploading \(toUpload.count) video(s)…")
+        let batch = Array(toUpload.prefix(settings.maxUploadsPerSync))
+        status = .running("Uploading \(batch.count) of \(toUpload.count) video(s)…")
 
         // 4. Bounded concurrent uploads (sliding window — like a semaphore)
         let maxConcurrent = settings.maxConcurrentUploads
         await withTaskGroup(of: Void.self) { group in
             var inFlight = 0
-            for item in toUpload {
+            for item in batch {
                 if inFlight >= maxConcurrent {
                     await group.next()
                     inFlight -= 1
@@ -158,7 +159,10 @@ final class SyncEngine {
         await MainActor.run { SyncEngine.shared.uploadStates[hash] = .uploading(0) }
         do {
             let resp = try await AzureService.shared.getUploadUrl(filename: filename, photoId: hash)
-            guard let sasURL = URL(string: resp.uploadUrl) else { throw URLError(.badURL) }
+            guard let sasURL = URL(string: resp.uploadUrl) else {
+                throw NSError(domain: "CloudCompressor", code: 1,
+                    userInfo: [NSLocalizedDescriptionKey: "Bad SAS URL: \(resp.uploadUrl.prefix(80))"])
+            }
 
             let tempURL = try await PhotoLibraryService.shared.exportOriginalVideo(localIdentifier: localId)
             defer { try? FileManager.default.removeItem(at: tempURL) }
