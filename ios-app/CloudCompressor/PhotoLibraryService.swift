@@ -136,12 +136,8 @@ class PhotoLibraryService {
     // MARK: - Export original (no transcoding)
 
     func exportOriginalVideo(localIdentifier: String) async throws -> URL {
-        let result = PHAsset.fetchAssets(withLocalIdentifiers: [localIdentifier], options: nil)
-        guard let asset = result.firstObject else { throw ExportError.assetNotFound }
-
-        let resources = PHAssetResource.assetResources(for: asset)
-        guard let resource = resources.first(where: { $0.type == .video }) else {
-            throw ExportError.noVideoResource
+        guard let (_, resource) = await fetchAssetAndResource(localIdentifier: localIdentifier) else {
+            throw ExportError.assetNotFound
         }
 
         let ext = (resource.originalFilename as NSString).pathExtension.lowercased()
