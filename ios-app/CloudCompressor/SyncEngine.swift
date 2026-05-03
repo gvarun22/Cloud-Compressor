@@ -20,6 +20,7 @@ final class SyncEngine {
 
     var status: SyncStatus = .idle
     var uploadStates: [String: UploadState] = [:]  // contentHash → state
+    var lastSyncResults: [SyncedVideo] = []
 
     var isRunning: Bool {
         if case .running = status { return true }
@@ -30,13 +31,31 @@ final class SyncEngine {
     private let photo        = PhotoLibraryService.shared
     private let azure        = AzureService.shared
 
-    // MARK: - Entry point
+    private var syncTask: Task<Void, Never>?
+
+    // MARK: - Public entry points
+
+    func startSync() {
+        guard !isRunning else { return }
+        syncTask = Task { await sync() }
+    }
+
+    func cancelSync() {
+        syncTask?.cancel()
+        syncTask = nil
+        status = .idle
+        uploadStates = [:]
+    }
 
     func sync() async {
         guard !isRunning else { return }
         uploadStates = [:]
+        lastSyncResults = []
 
         await downloadPhase()
+
+        guard !Task.isCancelled else { status = .idle; return }
+
         await uploadPhase()
 
         if case .running = status {
@@ -57,6 +76,7 @@ final class SyncEngine {
 
         status = .running("Downloading \(jobs.count) job(s)…")
         for job in jobs {
+            guard !Task.isCancelled else { break }
             await downloadAndSave(job)
         }
     }
@@ -66,18 +86,36 @@ final class SyncEngine {
         do {
             let (tempURL, _) = try await URLSession.shared.download(from: downloadURL)
 
-            // Use original filename so Photos stores it with the correct name
-            let filename = job.originalName ?? job.jobId
-            let named = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
+            // Use original filename so Photos stores it correctly.
+            // Sanitise in case originalName contains path separators.
+            let rawName  = job.originalName ?? "\(job.jobId).mov"
+            let filename = rawName.replacingOccurrences(of: "/", with: "_")
+            let named    = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
             if FileManager.default.fileExists(atPath: named.path) {
                 try FileManager.default.removeItem(at: named)
             }
             try FileManager.default.moveItem(at: tempURL, to: named)
             defer { try? FileManager.default.removeItem(at: named) }
 
-            try await photo.saveVideoToLibrary(from: named)
+            let savedId = try await photo.saveVideoToLibrary(from: named)
+            if let savedId {
+                lastSyncResults.append(SyncedVideo(
+                    filename: filename,
+                    originalSizeBytes: job.originalSizeBytes,
+                    compressedSizeBytes: job.compressedSizeBytes,
+                    localIdentifier: savedId,
+                    savedAt: Date()
+                ))
+            }
 
-            // Delete the original from Photos to free iCloud space
+            // Mark the original's content hash as processed so it is never re-uploaded,
+            // even if the deletion dialog is dismissed or runs in background.
+            if let photoId = job.photoId, !photoId.isEmpty {
+                settings.markProcessed(photoId)
+            }
+
+            // Attempt to delete the original — iOS shows a confirmation dialog.
+            // This works reliably in the foreground; may silently fail in background.
             if let localId = job.localId, !localId.isEmpty {
                 await photo.deleteAsset(localIdentifier: localId)
             }
@@ -96,53 +134,52 @@ final class SyncEngine {
 
         status = .running("Scanning library…")
 
-        // 1. Fast scan — no IO per asset
         let allVideos = photo.fetchVideos()
         guard !allVideos.isEmpty else { return }
 
-        // 2. Fetch distributed locks from Azure
         let activeLocks: Set<String>
         do { activeLocks = Set(try await azure.getActivePhotoIds()) }
-        catch { activeLocks = [] }  // no lock set → risk a duplicate at worst, not a crash
+        catch { activeLocks = [] }
 
-        // 3. Evaluate each video: compute hash + check encode tag + check lock
         status = .running("Evaluating \(allVideos.count) video(s)…")
         var toUpload: [(video: VideoItem, hash: String)] = []
 
         for video in allVideos {
+            guard !Task.isCancelled else { break }
+
             let assets = PHAsset.fetchAssets(withLocalIdentifiers: [video.id], options: nil)
             guard let asset = assets.firstObject else { continue }
 
             let resources = PHAssetResource.assetResources(for: asset)
             guard let resource = resources.first(where: { $0.type == .video }) else { continue }
 
-            // Permanent marker: video already compressed with current settings
             if let tag = await photo.readEncodeTag(for: asset),
                tag == settings.encodeSettingsTag { continue }
 
-            // Compute content hash (reads first 4 MB — the stable cross-device identity)
             guard let hash = try? await photo.contentHash(for: resource) else { continue }
 
-            // Distributed lock: job already in flight or ready for download
             if activeLocks.contains(hash) { continue }
+            if settings.processedPhotoIds.contains(hash) { continue }
 
             toUpload.append((video: video, hash: hash))
         }
 
-        guard !toUpload.isEmpty else {
-            status = .running("All videos up to date.")
-            try? await Task.sleep(for: .seconds(1))
+        guard !toUpload.isEmpty, !Task.isCancelled else {
+            if !Task.isCancelled {
+                status = .running("All videos up to date.")
+                try? await Task.sleep(for: .seconds(1))
+            }
             return
         }
 
         let batch = Array(toUpload.prefix(settings.maxUploadsPerSync))
         status = .running("Uploading \(batch.count) of \(toUpload.count) video(s)…")
 
-        // 4. Bounded concurrent uploads (sliding window — like a semaphore)
         let maxConcurrent = settings.maxConcurrentUploads
         await withTaskGroup(of: Void.self) { group in
             var inFlight = 0
             for item in batch {
+                guard !Task.isCancelled else { break }
                 if inFlight >= maxConcurrent {
                     await group.next()
                     inFlight -= 1
@@ -197,7 +234,7 @@ final class SyncEngine {
         request.requiresExternalPower       = false
         request.earliestBeginDate           = settings.quietWindowEnabled
             ? settings.nextQuietWindowStart()
-            : Date(timeIntervalSinceNow: 15 * 60)  // no quiet window → try again in 15 min
+            : Date(timeIntervalSinceNow: 15 * 60)
         try? BGTaskScheduler.shared.submit(request)
     }
 }

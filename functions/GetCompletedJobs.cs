@@ -19,10 +19,14 @@ public class GetCompletedJobs(BlobServiceClient blobService, TableServiceClient 
         var delegationKey = (await blobService.GetUserDelegationKeyAsync(
             DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddHours(24))).Value;
 
+        var deviceId = req.Query["deviceId"].ToString();
+        var filter   = string.IsNullOrEmpty(deviceId)
+            ? "PartitionKey eq 'jobs' and status eq 'ready'"
+            : $"PartitionKey eq 'jobs' and status eq 'ready' and deviceId eq '{deviceId}'";
+
         var results = new List<object>();
 
-        await foreach (var job in _table.QueryAsync<TableEntity>(
-            filter: "PartitionKey eq 'jobs' and status eq 'ready'"))
+        await foreach (var job in _table.QueryAsync<TableEntity>(filter: filter))
         {
             var blobName   = job.GetString("outputBlobName")!;
             var outputBlob = blobService.GetBlobContainerClient("output").GetBlobClient(blobName);

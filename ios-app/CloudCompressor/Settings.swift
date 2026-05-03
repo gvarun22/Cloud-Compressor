@@ -1,4 +1,5 @@
 import Foundation
+import Security
 
 @Observable
 final class Settings {
@@ -23,6 +24,24 @@ final class Settings {
     }
     var maxUploadsPerSync: Int {
         didSet { set("maxUploadsPerSync", maxUploadsPerSync) }
+    }
+
+    // MARK: - Device identity (stable per install, used to filter Azure jobs by device)
+
+    let deviceId: String
+
+    // MARK: - Processed originals (persisted to prevent re-upload after compression)
+
+    private(set) var processedPhotoIds: Set<String> = []
+
+    func markProcessed(_ photoId: String) {
+        processedPhotoIds.insert(photoId)
+        UserDefaults.standard.set(Array(processedPhotoIds), forKey: "processedPhotoIds")
+    }
+
+    func clearProcessed() {
+        processedPhotoIds = []
+        UserDefaults.standard.removeObject(forKey: "processedPhotoIds")
     }
 
     // MARK: - Quiet window (background task only runs within this time range)
@@ -57,6 +76,8 @@ final class Settings {
         autoSyncOnOpen       = ud.object(forKey: "autoSyncOnOpen")   == nil ? true : ud.bool(forKey: "autoSyncOnOpen")
         maxConcurrentUploads = ud.object(forKey: "maxConcurrentUploads") == nil ? 2 : ud.integer(forKey: "maxConcurrentUploads")
         maxUploadsPerSync    = ud.object(forKey: "maxUploadsPerSync")    == nil ? 5 : ud.integer(forKey: "maxUploadsPerSync")
+        processedPhotoIds    = Set(ud.stringArray(forKey: "processedPhotoIds") ?? [])
+        deviceId             = Settings.loadOrCreateDeviceId()
         quietWindowEnabled   = ud.bool(forKey: "quietWindowEnabled")
         quietWindowStartHour = ud.object(forKey: "quietWindowStartHour")   == nil ? 2 : ud.integer(forKey: "quietWindowStartHour")
         quietWindowStartMinute = ud.integer(forKey: "quietWindowStartMinute")
@@ -94,5 +115,29 @@ final class Settings {
 
     private func set(_ key: String, _ value: some Any) {
         UserDefaults.standard.set(value, forKey: key)
+    }
+
+    private static func loadOrCreateDeviceId() -> String {
+        let account = "cloudcompressor.deviceId" as CFString
+        let query: [CFString: Any] = [
+            kSecClass:       kSecClassGenericPassword,
+            kSecAttrAccount: account,
+            kSecReturnData:  true
+        ]
+        var result: AnyObject?
+        if SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+           let data = result as? Data,
+           let stored = String(data: data, encoding: .utf8) {
+            return stored
+        }
+        let generated = UUID().uuidString
+        let add: [CFString: Any] = [
+            kSecClass:            kSecClassGenericPassword,
+            kSecAttrAccount:      account,
+            kSecValueData:        Data(generated.utf8),
+            kSecAttrAccessible:   kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        ]
+        SecItemAdd(add as CFDictionary, nil)
+        return generated
     }
 }

@@ -24,11 +24,10 @@ struct LibraryView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     if engine.isRunning {
-                        ProgressView().controlSize(.small)
+                        Button("Stop") { engine.cancelSync() }
+                            .foregroundStyle(.red)
                     } else {
-                        Button("Sync Now") {
-                            Task { await engine.sync() }
-                        }
+                        Button("Sync Now") { engine.startSync() }
                     }
                 }
             }
@@ -49,6 +48,7 @@ struct LibraryView: View {
                 }
             }
             .buttonStyle(.borderedProminent)
+            .tint(.blue)
         }
         .padding()
     }

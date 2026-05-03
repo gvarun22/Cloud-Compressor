@@ -21,7 +21,8 @@ class AzureService {
         comps.queryItems = [
             URLQueryItem(name: "filename", value: filename),
             URLQueryItem(name: "photoId",  value: photoId),
-            URLQueryItem(name: "localId",  value: localId)
+            URLQueryItem(name: "localId",  value: localId),
+            URLQueryItem(name: "deviceId", value: Settings.shared.deviceId)
         ]
         var req = URLRequest(url: comps.url!)
         authHeaders.forEach { req.setValue($1, forHTTPHeaderField: $0) }
@@ -31,7 +32,9 @@ class AzureService {
     }
 
     func getCompletedJobs() async throws -> [CompletedJob] {
-        var req = URLRequest(url: URL(string: "\(Settings.shared.baseURL)/Get-CompletedJobs")!)
+        var comps = URLComponents(string: "\(Settings.shared.baseURL)/Get-CompletedJobs")!
+        comps.queryItems = [URLQueryItem(name: "deviceId", value: Settings.shared.deviceId)]
+        var req = URLRequest(url: comps.url!)
         authHeaders.forEach { req.setValue($1, forHTTPHeaderField: $0) }
         let (data, response) = try await URLSession.shared.data(for: req)
         try assertOK(response)

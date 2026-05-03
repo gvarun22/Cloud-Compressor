@@ -22,6 +22,7 @@ public class GetUploadUrl(BlobServiceClient blobService, TableServiceClient tabl
         var filename    = req.Query["filename"].ToString();
         var photoId     = req.Query["photoId"].ToString();
         var localId     = req.Query["localId"].ToString();
+        var deviceId    = req.Query["deviceId"].ToString();
 
         if (string.IsNullOrEmpty(filename))
             return new BadRequestObjectResult("Required query param: filename");
@@ -59,6 +60,7 @@ public class GetUploadUrl(BlobServiceClient blobService, TableServiceClient tabl
             ["extension"]         = ext,
             ["photoId"]           = photoId,
             ["localId"]           = localId,
+            ["deviceId"]          = deviceId,
             ["startedAt"]         = DateTimeOffset.UtcNow.ToString("o"),
             ["originalSizeBytes"] = 0L
         });

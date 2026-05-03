@@ -55,6 +55,29 @@ struct SettingsView: View {
                 } header: { Text("Quiet Window") }
                   footer: { Text("Background tasks will only be scheduled within these hours. Foreground sync always runs.") }
 
+                // MARK: Processed history
+                Section {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Processed videos")
+                            Text("\(settings.processedPhotoIds.count) original(s) marked as done")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button("Reset", role: .destructive) { showClearConfirm = true }
+                    }
+                } footer: { Text("Clear this if you deleted a compressed copy and want the original to be re-encoded.") }
+                .confirmationDialog(
+                    "Reset processed history?",
+                    isPresented: $showClearConfirm,
+                    titleVisibility: .visible
+                ) {
+                    Button("Reset", role: .destructive) { settings.clearProcessed() }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text("The next sync will re-evaluate all videos. Already-compressed videos with the encode tag embedded will still be skipped.")
+                }
+
                 // MARK: Encode settings (read-only info)
                 Section {
                     LabeledContent("Current tag", value: settings.encodeSettingsTag)

@@ -1,122 +1,136 @@
+import AVKit
+import Photos
 import SwiftUI
 
-// Downloads are handled automatically by SyncEngine on every sync pass.
-// This view shows completed jobs that are ready but not yet downloaded,
-// and lets the user manually trigger a download check.
-
 struct DownloadsView: View {
-    @State private var vm = DownloadsViewModel()
+    private var engine: SyncEngine { SyncEngine.shared }
+    @State private var selectedVideo: SyncedVideo?
 
     var body: some View {
         NavigationStack {
             Group {
-                if vm.isLoading {
-                    ProgressView("Checking for completed jobs…")
-                } else if vm.jobs.isEmpty {
+                if engine.lastSyncResults.isEmpty {
                     ContentUnavailableView(
-                        "No Completed Jobs",
+                        "No Recent Downloads",
                         systemImage: "arrow.down.circle",
-                        description: Text("Sync runs automatically on open. Pull to refresh.")
+                        description: Text("Compressed videos appear here after each sync so you can verify them.")
                     )
                 } else {
-                    List(vm.jobs) { job in
-                        JobRow(job: job, state: vm.downloadStates[job.jobId]) {
-                            Task { await vm.download(job) }
+                    List(engine.lastSyncResults) { video in
+                        Button { selectedVideo = video } label: {
+                            SyncedVideoRow(video: video)
                         }
+                        .buttonStyle(.plain)
                     }
-                    .refreshable { await vm.refresh() }
                 }
             }
-            .navigationTitle("Downloads")
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Refresh") { Task { await vm.refresh() } }
-                        .disabled(vm.isLoading)
-                }
+            .navigationTitle("Last Sync")
+            .sheet(item: $selectedVideo) { video in
+                VideoPreviewSheet(video: video)
             }
         }
-        .task { await vm.refresh() }
     }
 }
 
-struct JobRow: View {
-    let job: CompletedJob
-    let state: DownloadState?
-    let onDownload: () -> Void
+struct SyncedVideoRow: View {
+    let video: SyncedVideo
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(job.originalName ?? job.jobId).font(.body).lineLimit(1)
-
-            HStack(spacing: 6) {
-                Text("\(formatBytes(job.originalSizeBytes)) → \(formatBytes(job.compressedSizeBytes))")
-                if job.savingsPercent > 0 {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(video.filename).font(.body).lineLimit(1)
+            HStack(spacing: 4) {
+                Text("\(formatBytes(video.originalSizeBytes)) → \(formatBytes(video.compressedSizeBytes))")
+                if video.savingsPercent > 0 {
                     Text("·")
-                    Text("\(job.savingsPercent)% smaller").foregroundStyle(.green)
-                } else if job.savingsPercent < 0 {
+                    Text("\(video.savingsPercent)% smaller").foregroundStyle(.green)
+                } else if video.savingsPercent < 0 {
                     Text("·")
-                    Text("\(abs(job.savingsPercent))% larger").foregroundStyle(.orange)
+                    Text("\(abs(video.savingsPercent))% larger").foregroundStyle(.orange)
                 }
             }
             .font(.caption).foregroundStyle(.secondary)
-
-            Group {
-                switch state {
-                case .none:
-                    Button("Download & Save to Photos", action: onDownload)
-                        .buttonStyle(.borderedProminent).controlSize(.small)
-                case .downloading:
-                    HStack(spacing: 6) { ProgressView().controlSize(.mini); Text("Downloading…") }
-                case .saving:
-                    HStack(spacing: 6) { ProgressView().controlSize(.mini); Text("Saving to Photos…") }
-                case .done:
-                    Label("Saved to Photos", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
-                case .failed(let msg):
-                    Label(msg, systemImage: "xmark.circle.fill").foregroundStyle(.red).lineLimit(2)
-                }
-            }
-            .font(.caption)
+            Label("Tap to preview", systemImage: "play.circle")
+                .font(.caption2).foregroundStyle(.tertiary)
         }
         .padding(.vertical, 4)
     }
 }
 
-@Observable
-@MainActor
-final class DownloadsViewModel {
-    var jobs: [CompletedJob] = []
-    var downloadStates: [String: DownloadState] = [:]
-    var isLoading = false
+struct VideoPreviewSheet: View {
+    let video: SyncedVideo
+    @State private var player: AVPlayer?
+    @State private var notFound = false
+    @Environment(\.dismiss) private var dismiss
 
-    nonisolated init() {}
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                Group {
+                    if let player {
+                        VideoPlayer(player: player)
+                    } else if notFound {
+                        ContentUnavailableView(
+                            "Video Not Found",
+                            systemImage: "exclamationmark.circle",
+                            description: Text("The video may have been deleted from Photos.")
+                        )
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else {
+                        ProgressView("Loading…")
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                }
 
-    func refresh() async {
-        isLoading = true
-        defer { isLoading = false }
-        do { jobs = try await AzureService.shared.getCompletedJobs() }
-        catch { print("GetCompletedJobs error: \(error)") }
-    }
-
-    func download(_ job: CompletedJob) async {
-        guard let downloadURL = URL(string: job.downloadUrl) else { return }
-        downloadStates[job.jobId] = .downloading
-        do {
-            let (tempURL, _) = try await URLSession.shared.download(from: downloadURL)
-            let ext   = (job.originalName as NSString?)?.pathExtension ?? "mov"
-            let named = FileManager.default.temporaryDirectory
-                .appendingPathComponent(UUID().uuidString)
-                .appendingPathExtension(ext.isEmpty ? "mov" : ext)
-            try FileManager.default.moveItem(at: tempURL, to: named)
-            defer { try? FileManager.default.removeItem(at: named) }
-
-            downloadStates[job.jobId] = .saving
-            try await PhotoLibraryService.shared.saveVideoToLibrary(from: named)
-            try await AzureService.shared.acknowledgeJob(jobId: job.jobId)
-
-            downloadStates[job.jobId] = .done
-            jobs.removeAll { $0.jobId == job.jobId }
-        } catch {
-            downloadStates[job.jobId] = .failed(error.localizedDescription)
+                Divider()
+                HStack {
+                    Text("\(formatBytes(video.originalSizeBytes)) → \(formatBytes(video.compressedSizeBytes))")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    if video.savingsPercent > 0 {
+                        Text("\(video.savingsPercent)% smaller").foregroundStyle(.green)
+                    } else if video.savingsPercent < 0 {
+                        Text("\(abs(video.savingsPercent))% larger").foregroundStyle(.orange)
+                    }
+                }
+                .font(.caption)
+                .padding(.horizontal)
+                .padding(.vertical, 10)
+            }
+            .navigationTitle(video.filename)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { dismiss() }
+                }
+            }
         }
+        .task { await loadPlayer() }
+        .onDisappear { player?.pause() }
     }
+
+    private func loadPlayer() async {
+        let assets = PHAsset.fetchAssets(withLocalIdentifiers: [video.localIdentifier], options: nil)
+        guard let asset = assets.firstObject else { notFound = true; return }
+
+        let avAsset: AVAsset? = await withCheckedContinuation { cont in
+            let opts = PHVideoRequestOptions()
+            opts.version = .current
+            opts.isNetworkAccessAllowed = true
+            PHImageManager.default().requestAVAsset(forVideo: asset, options: opts) { avAsset, _, _ in
+                cont.resume(returning: avAsset)
+            }
+        }
+
+        guard let avAsset else { notFound = true; return }
+        let playerItem = AVPlayerItem(asset: avAsset)
+        player = AVPlayer(playerItem: playerItem)
+        player?.play()
+    }
+}
+
+private func formatBytes(_ bytes: Int64) -> String {
+    let formatter = ByteCountFormatter()
+    formatter.allowedUnits = [.useGB, .useMB]
+    formatter.countStyle = .file
+    return formatter.string(fromByteCount: bytes)
 }

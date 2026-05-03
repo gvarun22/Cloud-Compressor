@@ -1,6 +1,8 @@
 # Build output
 functions/bin/
 functions/obj/
+publish/
+publish.zip
 
 # Real config — contains subscription ID. Copy resource-names.example.json and fill in values.
 config/resource-names.json

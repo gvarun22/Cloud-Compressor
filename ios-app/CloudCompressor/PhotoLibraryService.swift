@@ -156,10 +156,13 @@ class PhotoLibraryService {
 
     // MARK: - Save to library
 
-    func saveVideoToLibrary(from url: URL) async throws {
+    func saveVideoToLibrary(from url: URL) async throws -> String? {
+        var localIdentifier: String?
         try await PHPhotoLibrary.shared().performChanges {
-            PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: url)
+            let req = PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: url)
+            localIdentifier = req?.placeholderForCreatedAsset?.localIdentifier
         }
+        return localIdentifier
     }
 
     enum ExportError: LocalizedError {

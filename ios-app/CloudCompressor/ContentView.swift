@@ -7,7 +7,7 @@ struct ContentView: View {
                 .tabItem { Label("Library", systemImage: "photo.on.rectangle.angled") }
 
             DownloadsView()
-                .tabItem { Label("Downloads", systemImage: "arrow.down.circle") }
+                .tabItem { Label("Last Sync", systemImage: "arrow.down.circle") }
 
             SettingsView()
                 .tabItem { Label("Settings", systemImage: "gear") }

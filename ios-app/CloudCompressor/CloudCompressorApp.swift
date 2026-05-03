@@ -1,8 +1,19 @@
 import BackgroundTasks
 import SwiftUI
 
+class AppDelegate: NSObject, UIApplicationDelegate {
+    func application(
+        _ application: UIApplication,
+        handleEventsForBackgroundURLSession identifier: String,
+        completionHandler: @escaping () -> Void
+    ) {
+        UploadSessionDelegate.shared.backgroundCompletionHandler = completionHandler
+    }
+}
+
 @main
 struct CloudCompressorApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     private let engine = SyncEngine.shared
 
     init() {
@@ -37,6 +48,10 @@ struct CloudCompressorApp: App {
             ContentView()
                 .task {
                     guard Settings.shared.autoSyncOnOpen else { return }
+                    guard Settings.shared.isInQuietWindow() else {
+                        engine.scheduleBackgroundSync()
+                        return
+                    }
                     await engine.sync()
                     engine.scheduleBackgroundSync()
                 }

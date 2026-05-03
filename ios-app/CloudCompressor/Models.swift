@@ -31,6 +31,20 @@ struct VideoItem: Identifiable {
     let duration: TimeInterval
 }
 
+struct SyncedVideo: Identifiable {
+    let id = UUID()
+    let filename: String
+    let originalSizeBytes: Int64
+    let compressedSizeBytes: Int64
+    let localIdentifier: String  // PHAsset.localIdentifier of the saved compressed video
+    let savedAt: Date
+
+    var savingsPercent: Int {
+        guard originalSizeBytes > 0 else { return 0 }
+        return Int((1.0 - Double(compressedSizeBytes) / Double(originalSizeBytes)) * 100)
+    }
+}
+
 enum UploadState {
     case uploading(Double)
     case done
