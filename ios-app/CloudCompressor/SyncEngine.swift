@@ -134,9 +134,7 @@ final class SyncEngine {
 
         status = .running("Scanning library…")
 
-        let allVideos = await Task.detached(priority: .userInitiated) {
-            PhotoLibraryService.shared.fetchVideos()
-        }.value
+        let allVideos = await photo.fetchVideos()
         guard !allVideos.isEmpty else { return }
 
         let activeLocks: Set<String>

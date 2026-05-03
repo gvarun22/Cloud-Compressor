@@ -14,28 +14,32 @@ class PhotoLibraryService {
 
     // MARK: - Library scan (fast — no IO per asset)
 
-    func fetchVideos() -> [VideoItem] {
-        let options = PHFetchOptions()
-        options.predicate = NSPredicate(format: "mediaType == %d", PHAssetMediaType.video.rawValue)
-        options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
+    func fetchVideos() async -> [VideoItem] {
+        await withCheckedContinuation { cont in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let options = PHFetchOptions()
+                options.predicate = NSPredicate(format: "mediaType == %d", PHAssetMediaType.video.rawValue)
+                options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
 
-        let assets = PHAsset.fetchAssets(with: options)
-        var items: [VideoItem] = []
+                let assets = PHAsset.fetchAssets(with: options)
+                var items: [VideoItem] = []
 
-        assets.enumerateObjects { asset, _, _ in
-            let resources = PHAssetResource.assetResources(for: asset)
-            guard let resource = resources.first(where: { $0.type == .video }) else { return }
-            let fileSize = (resource.value(forKey: "fileSize") as? Int64) ?? 0
-            items.append(VideoItem(
-                id:           asset.localIdentifier,
-                filename:     resource.originalFilename,
-                fileSize:     fileSize,
-                creationDate: asset.creationDate,
-                duration:     asset.duration
-            ))
+                assets.enumerateObjects { asset, _, _ in
+                    let resources = PHAssetResource.assetResources(for: asset)
+                    guard let resource = resources.first(where: { $0.type == .video }) else { return }
+                    let fileSize = (resource.value(forKey: "fileSize") as? Int64) ?? 0
+                    items.append(VideoItem(
+                        id:           asset.localIdentifier,
+                        filename:     resource.originalFilename,
+                        fileSize:     fileSize,
+                        creationDate: asset.creationDate,
+                        duration:     asset.duration
+                    ))
+                }
+
+                cont.resume(returning: items.sorted { $0.fileSize > $1.fileSize })
+            }
         }
-
-        return items.sorted { $0.fileSize > $1.fileSize }
     }
 
     // MARK: - Content hash (SHA256 of first 4 MB)
