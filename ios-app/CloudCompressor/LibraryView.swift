@@ -105,7 +105,7 @@ struct LibraryView: View {
         case .idle:                return "Ready"
         case .running(let msg):    return msg
         case .completed(let date): return "Last sync: \(date.formatted(date: .omitted, time: .shortened))"
-        case .failed(let msg):     return "Sync failed"
+        case .failed:              return "Sync failed"
         }
     }
 

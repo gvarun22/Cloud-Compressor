@@ -87,30 +87,32 @@ class PhotoLibraryService {
     // Returns nil if the video has never been processed by this pipeline.
 
     func readEncodeTag(for asset: PHAsset) async -> String? {
-        await withCheckedContinuation { cont in
+        let avAsset: AVAsset? = await withCheckedContinuation { cont in
             let opts = PHVideoRequestOptions()
             opts.version = .current
-            opts.isNetworkAccessAllowed = false  // tag check — don't trigger iCloud download
+            opts.isNetworkAccessAllowed = false
             PHImageManager.default().requestAVAsset(forVideo: asset, options: opts) { avAsset, _, _ in
-                guard let avAsset else { cont.resume(returning: nil); return }
-
-                // Brute-force across all format-specific metadata: any item whose string
-                // value starts with "cloudcompressor:" is our tag regardless of which
-                // atom FFmpeg chose to write it into.
-                let allItems = avAsset.commonMetadata
-                    + avAsset.metadata(forFormat: .quickTimeUserData)
-                    + avAsset.metadata(forFormat: .quickTimeMetadata)
-                    + avAsset.metadata(forFormat: .iTunesMetadata)
-
-                for item in allItems {
-                    if let value = item.stringValue, value.hasPrefix("cloudcompressor:") {
-                        cont.resume(returning: value)
-                        return
-                    }
-                }
-                cont.resume(returning: nil)
+                cont.resume(returning: avAsset)
             }
         }
+        guard let avAsset else { return nil }
+
+        do {
+            var allItems: [AVMetadataItem] = []
+            allItems += try await avAsset.load(.commonMetadata)
+            allItems += try await avAsset.loadMetadata(for: .quickTimeUserData)
+            allItems += try await avAsset.loadMetadata(for: .quickTimeMetadata)
+            allItems += try await avAsset.loadMetadata(for: .iTunesMetadata)
+
+            for item in allItems {
+                if let value = try? await item.load(.stringValue),
+                   value.hasPrefix("cloudcompressor:") {
+                    return value
+                }
+            }
+        } catch {}
+
+        return nil
     }
 
     // MARK: - Export original (no transcoding)
