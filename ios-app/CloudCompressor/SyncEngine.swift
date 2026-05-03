@@ -147,11 +147,7 @@ final class SyncEngine {
         for video in allVideos {
             guard !Task.isCancelled else { break }
 
-            let assets = PHAsset.fetchAssets(withLocalIdentifiers: [video.id], options: nil)
-            guard let asset = assets.firstObject else { continue }
-
-            let resources = PHAssetResource.assetResources(for: asset)
-            guard let resource = resources.first(where: { $0.type == .video }) else { continue }
+            guard let (asset, resource) = await photo.fetchAssetAndResource(localIdentifier: video.id) else { continue }
 
             if let tag = await photo.readEncodeTag(for: asset),
                tag == settings.encodeSettingsTag { continue }

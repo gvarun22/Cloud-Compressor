@@ -42,6 +42,20 @@ class PhotoLibraryService {
         }
     }
 
+    // MARK: - Asset + resource fetch (off main thread to avoid prefetch warnings)
+
+    func fetchAssetAndResource(localIdentifier: String) async -> (PHAsset, PHAssetResource)? {
+        await withCheckedContinuation { cont in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let assets = PHAsset.fetchAssets(withLocalIdentifiers: [localIdentifier], options: nil)
+                guard let asset = assets.firstObject else { cont.resume(returning: nil); return }
+                let resources = PHAssetResource.assetResources(for: asset)
+                guard let resource = resources.first(where: { $0.type == .video }) else { cont.resume(returning: nil); return }
+                cont.resume(returning: (asset, resource))
+            }
+        }
+    }
+
     // MARK: - Content hash (SHA256 of first 4 MB)
     // Uses PHAssetResourceManager.requestData with early cancellation so we never
     // download more than 4 MB even for iCloud-only assets.
@@ -151,7 +165,11 @@ class PhotoLibraryService {
     // MARK: - Delete original
 
     func deleteAsset(localIdentifier: String) async {
-        let result = PHAsset.fetchAssets(withLocalIdentifiers: [localIdentifier], options: nil)
+        let result: PHFetchResult<PHAsset> = await withCheckedContinuation { cont in
+            DispatchQueue.global(qos: .userInitiated).async {
+                cont.resume(returning: PHAsset.fetchAssets(withLocalIdentifiers: [localIdentifier], options: nil))
+            }
+        }
         guard result.count > 0 else { return }
         try? await PHPhotoLibrary.shared().performChanges {
             PHAssetChangeRequest.deleteAssets(result)

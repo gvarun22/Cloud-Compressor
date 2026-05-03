@@ -109,7 +109,11 @@ struct VideoPreviewSheet: View {
     }
 
     private func loadPlayer() async {
-        let assets = PHAsset.fetchAssets(withLocalIdentifiers: [video.localIdentifier], options: nil)
+        let assets: PHFetchResult<PHAsset> = await withCheckedContinuation { cont in
+            DispatchQueue.global(qos: .userInitiated).async {
+                cont.resume(returning: PHAsset.fetchAssets(withLocalIdentifiers: [video.localIdentifier], options: nil))
+            }
+        }
         guard let asset = assets.firstObject else { notFound = true; return }
 
         let avAsset: AVAsset? = await withCheckedContinuation { cont in
