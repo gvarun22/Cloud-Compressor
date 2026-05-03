@@ -1,41 +1,42 @@
 import Foundation
 
-final class Settings: ObservableObject {
+@Observable
+final class Settings {
     static let shared = Settings()
 
     // MARK: - Azure
 
-    @Published var baseURL: String {
+    var baseURL: String {
         didSet { set("baseURL", baseURL) }
     }
-    @Published var functionKey: String {
+    var functionKey: String {
         didSet { set("functionKey", functionKey) }
     }
 
     // MARK: - Sync behaviour
 
-    @Published var autoSyncOnOpen: Bool {
+    var autoSyncOnOpen: Bool {
         didSet { set("autoSyncOnOpen", autoSyncOnOpen) }
     }
-    @Published var maxConcurrentUploads: Int {
+    var maxConcurrentUploads: Int {
         didSet { set("maxConcurrentUploads", maxConcurrentUploads) }
     }
 
     // MARK: - Quiet window (background task only runs within this time range)
 
-    @Published var quietWindowEnabled: Bool {
+    var quietWindowEnabled: Bool {
         didSet { set("quietWindowEnabled", quietWindowEnabled) }
     }
-    @Published var quietWindowStartHour: Int {
+    var quietWindowStartHour: Int {
         didSet { set("quietWindowStartHour", quietWindowStartHour) }
     }
-    @Published var quietWindowStartMinute: Int {
+    var quietWindowStartMinute: Int {
         didSet { set("quietWindowStartMinute", quietWindowStartMinute) }
     }
-    @Published var quietWindowEndHour: Int {
+    var quietWindowEndHour: Int {
         didSet { set("quietWindowEndHour", quietWindowEndHour) }
     }
-    @Published var quietWindowEndMinute: Int {
+    var quietWindowEndMinute: Int {
         didSet { set("quietWindowEndMinute", quietWindowEndMinute) }
     }
 

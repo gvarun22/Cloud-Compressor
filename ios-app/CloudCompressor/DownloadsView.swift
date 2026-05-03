@@ -5,8 +5,7 @@ import SwiftUI
 // and lets the user manually trigger a download check.
 
 struct DownloadsView: View {
-    @ObservedObject private var engine = SyncEngine.shared
-    @StateObject private var vm = DownloadsViewModel()
+    @State private var vm = DownloadsViewModel()
 
     var body: some View {
         NavigationStack {
@@ -82,11 +81,14 @@ struct JobRow: View {
     }
 }
 
+@Observable
 @MainActor
-class DownloadsViewModel: ObservableObject {
-    @Published var jobs: [CompletedJob] = []
-    @Published var downloadStates: [String: DownloadState] = [:]
-    @Published var isLoading = false
+final class DownloadsViewModel {
+    var jobs: [CompletedJob] = []
+    var downloadStates: [String: DownloadState] = [:]
+    var isLoading = false
+
+    nonisolated init() {}
 
     func refresh() async {
         isLoading = true

@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct SettingsView: View {
-    @ObservedObject private var settings = Settings.shared
+    @Bindable private var settings = Settings.shared
     @State private var showClearConfirm = false
 
     var body: some View {

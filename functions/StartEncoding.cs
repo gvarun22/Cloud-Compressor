@@ -86,9 +86,9 @@ public class StartEncoding(
             var aciName   = $"aci-{jobId}";
             var ffmpegCmd = $"apk add --no-cache curl && mkdir -p /tmp/output && " +
                 $"ffmpeg -y -i '{inputSasUrl}' " +
-                $"-c:v libx265 -crf 24 -preset veryfast -c:a copy " +
+                $"-c:v libx265 -crf 24 -preset veryfast -pix_fmt yuv420p -tag:v hvc1 -c:a copy " +
                 $"-map_metadata 0 -movflags use_metadata_tags " +
-                $"-metadata comment=cloudcompressor:crf24:h265:veryfast " +
+                $"-metadata comment=cloudcompressor:crf24:h265:veryfast:hvc1 " +
                 $"/tmp/output/{blobName} && " +
                 $"curl -sf -X PUT " +
                 $"-H 'x-ms-blob-type: BlockBlob' " +
