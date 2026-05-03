@@ -14,15 +14,12 @@ struct CloudCompressorApp: App {
         ) { task in
             guard let processingTask = task as? BGProcessingTask else { return }
 
-            let settings = Settings.shared
-            guard settings.isInQuietWindow() else {
-                // Outside quiet window — complete immediately and reschedule.
-                processingTask.setTaskCompleted(success: true)
-                Task { @MainActor in SyncEngine.shared.scheduleBackgroundSync() }
-                return
-            }
-
-            let syncTask = Task {
+            let syncTask = Task { @MainActor in
+                guard Settings.shared.isInQuietWindow() else {
+                    processingTask.setTaskCompleted(success: true)
+                    SyncEngine.shared.scheduleBackgroundSync()
+                    return
+                }
                 await SyncEngine.shared.sync()
                 processingTask.setTaskCompleted(success: true)
                 SyncEngine.shared.scheduleBackgroundSync()
