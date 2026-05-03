@@ -2,7 +2,7 @@ import Photos
 import SwiftUI
 
 struct LibraryView: View {
-    @ObservedObject private var engine = SyncEngine.shared
+    private var engine: SyncEngine { SyncEngine.shared }
 
     var body: some View {
         NavigationStack {

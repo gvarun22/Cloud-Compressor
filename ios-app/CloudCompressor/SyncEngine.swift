@@ -12,13 +12,14 @@ enum SyncStatus: Equatable {
 
 // MARK: - SyncEngine
 
+@Observable
 @MainActor
-final class SyncEngine: ObservableObject {
+final class SyncEngine {
     static let shared = SyncEngine()
     private init() {}
 
-    @Published var status: SyncStatus = .idle
-    @Published var uploadStates: [String: UploadState] = [:]  // contentHash → state
+    var status: SyncStatus = .idle
+    var uploadStates: [String: UploadState] = [:]  // contentHash → state
 
     var isRunning: Bool {
         if case .running = status { return true }
