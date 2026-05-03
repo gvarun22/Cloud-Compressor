@@ -66,16 +66,22 @@ final class SyncEngine {
         do {
             let (tempURL, _) = try await URLSession.shared.download(from: downloadURL)
 
-            let ext    = (job.originalName as NSString?)?.pathExtension ?? "mov"
-            let named  = FileManager.default.temporaryDirectory
-                .appendingPathComponent(UUID().uuidString)
-                .appendingPathExtension(ext.isEmpty ? "mov" : ext)
+            // Use original filename so Photos stores it with the correct name
+            let filename = job.originalName ?? job.jobId
+            let named = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
+            if FileManager.default.fileExists(atPath: named.path) {
+                try FileManager.default.removeItem(at: named)
+            }
             try FileManager.default.moveItem(at: tempURL, to: named)
             defer { try? FileManager.default.removeItem(at: named) }
 
-            // PHPhotoLibrary reads the embedded creation_time so the video lands at the
-            // original recording date in the timeline, not today.
             try await photo.saveVideoToLibrary(from: named)
+
+            // Delete the original from Photos to free iCloud space
+            if let localId = job.localId, !localId.isEmpty {
+                await photo.deleteAsset(localIdentifier: localId)
+            }
+
             try await azure.acknowledgeJob(jobId: job.jobId)
         } catch {
             print("[SyncEngine] Download failed for job \(job.jobId): \(error)")
@@ -158,7 +164,7 @@ final class SyncEngine {
     nonisolated func uploadOne(hash: String, filename: String, localId: String) async {
         await MainActor.run { SyncEngine.shared.uploadStates[hash] = .uploading(0) }
         do {
-            let resp = try await AzureService.shared.getUploadUrl(filename: filename, photoId: hash)
+            let resp = try await AzureService.shared.getUploadUrl(filename: filename, photoId: hash, localId: localId)
             guard let sasURL = URL(string: resp.uploadUrl) else {
                 throw NSError(domain: "CloudCompressor", code: 1,
                     userInfo: [NSLocalizedDescriptionKey: "Bad SAS URL: \(resp.uploadUrl.prefix(80))"])

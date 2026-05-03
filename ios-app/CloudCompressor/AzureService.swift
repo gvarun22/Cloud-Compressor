@@ -9,11 +9,19 @@ class AzureService {
         ["x-functions-key": settings.functionKey]
     }
 
-    func getUploadUrl(filename: String, photoId: String) async throws -> UploadUrlResponse {
-        var comps = URLComponents(string: "\(settings.baseURL)/Get-UploadUrl")!
+    private let backgroundSession: URLSession = {
+        let config = URLSessionConfiguration.background(withIdentifier: "cloudcompressor.upload")
+        config.isDiscretionary = false
+        config.sessionSendsLaunchEvents = true
+        return URLSession(configuration: config, delegate: UploadSessionDelegate.shared, delegateQueue: nil)
+    }()
+
+    func getUploadUrl(filename: String, photoId: String, localId: String) async throws -> UploadUrlResponse {
+        var comps = URLComponents(string: "\(Settings.shared.baseURL)/Get-UploadUrl")!
         comps.queryItems = [
             URLQueryItem(name: "filename", value: filename),
-            URLQueryItem(name: "photoId",  value: photoId)
+            URLQueryItem(name: "photoId",  value: photoId),
+            URLQueryItem(name: "localId",  value: localId)
         ]
         var req = URLRequest(url: comps.url!)
         authHeaders.forEach { req.setValue($1, forHTTPHeaderField: $0) }
@@ -23,17 +31,15 @@ class AzureService {
     }
 
     func getCompletedJobs() async throws -> [CompletedJob] {
-        var req = URLRequest(url: URL(string: "\(settings.baseURL)/Get-CompletedJobs")!)
+        var req = URLRequest(url: URL(string: "\(Settings.shared.baseURL)/Get-CompletedJobs")!)
         authHeaders.forEach { req.setValue($1, forHTTPHeaderField: $0) }
         let (data, response) = try await URLSession.shared.data(for: req)
         try assertOK(response)
         return try JSONDecoder().decode([CompletedJob].self, from: data)
     }
 
-    /// Returns content hashes (photoIds) for all jobs that are pending/submitted/processing/ready.
-    /// These are the distributed locks — any hash in this set should not be re-uploaded.
     func getActivePhotoIds() async throws -> [String] {
-        var req = URLRequest(url: URL(string: "\(settings.baseURL)/Get-ActivePhotoIds")!)
+        var req = URLRequest(url: URL(string: "\(Settings.shared.baseURL)/Get-ActivePhotoIds")!)
         authHeaders.forEach { req.setValue($1, forHTTPHeaderField: $0) }
         let (data, response) = try await URLSession.shared.data(for: req)
         try assertOK(response)
@@ -41,7 +47,7 @@ class AzureService {
     }
 
     func acknowledgeJob(jobId: String) async throws {
-        var comps = URLComponents(string: "\(settings.baseURL)/Acknowledge-Job")!
+        var comps = URLComponents(string: "\(Settings.shared.baseURL)/Acknowledge-Job")!
         comps.queryItems = [URLQueryItem(name: "jobId", value: jobId)]
         var req = URLRequest(url: comps.url!)
         authHeaders.forEach { req.setValue($1, forHTTPHeaderField: $0) }
@@ -55,9 +61,11 @@ class AzureService {
         req.setValue("BlockBlob",                forHTTPHeaderField: "x-ms-blob-type")
         req.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
 
-        let delegate = UploadProgressDelegate(onProgress: progress)
-        let (_, response) = try await URLSession.shared.upload(for: req, fromFile: fileURL, delegate: delegate)
-        try assertOK(response)
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+            let task = backgroundSession.uploadTask(with: req, fromFile: fileURL)
+            UploadSessionDelegate.shared.register(taskId: task.taskIdentifier, continuation: cont, progress: progress)
+            task.resume()
+        }
     }
 
     private func assertOK(_ response: URLResponse) throws {
@@ -79,18 +87,53 @@ class AzureService {
     }
 }
 
-private class UploadProgressDelegate: NSObject, URLSessionTaskDelegate {
-    let onProgress: (Double) -> Void
-    init(onProgress: @escaping (Double) -> Void) { self.onProgress = onProgress }
+final class UploadSessionDelegate: NSObject, URLSessionTaskDelegate, URLSessionDelegate, @unchecked Sendable {
+    static let shared = UploadSessionDelegate()
+    private override init() {}
 
-    func urlSession(
-        _ session: URLSession, task: URLSessionTask,
-        didSendBodyData bytesSent: Int64,
-        totalBytesSent: Int64,
-        totalBytesExpectedToSend: Int64
-    ) {
+    var backgroundCompletionHandler: (() -> Void)?
+
+    private let lock = NSLock()
+    private var continuations: [Int: CheckedContinuation<Void, Error>] = [:]
+    private var progressHandlers: [Int: (Double) -> Void] = [:]
+
+    func register(taskId: Int, continuation: CheckedContinuation<Void, Error>, progress: @escaping (Double) -> Void) {
+        lock.withLock {
+            continuations[taskId] = continuation
+            progressHandlers[taskId] = progress
+        }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask,
+                    didSendBodyData bytesSent: Int64,
+                    totalBytesSent: Int64,
+                    totalBytesExpectedToSend: Int64) {
         let p = totalBytesExpectedToSend > 0
             ? Double(totalBytesSent) / Double(totalBytesExpectedToSend) : 0
-        DispatchQueue.main.async { self.onProgress(p) }
+        let handler = lock.withLock { progressHandlers[task.taskIdentifier] }
+        DispatchQueue.main.async { handler?(p) }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        let cont = lock.withLock {
+            let c = continuations.removeValue(forKey: task.taskIdentifier)
+            progressHandlers.removeValue(forKey: task.taskIdentifier)
+            return c
+        }
+        if let error {
+            cont?.resume(throwing: error)
+        } else if let http = task.response as? HTTPURLResponse,
+                  !(200...299).contains(http.statusCode) {
+            cont?.resume(throwing: AzureService.AzureError.httpError(http.statusCode))
+        } else {
+            cont?.resume()
+        }
+    }
+
+    func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {
+        DispatchQueue.main.async {
+            self.backgroundCompletionHandler?()
+            self.backgroundCompletionHandler = nil
+        }
     }
 }

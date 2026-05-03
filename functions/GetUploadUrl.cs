@@ -19,8 +19,9 @@ public class GetUploadUrl(BlobServiceClient blobService, TableServiceClient tabl
     public async Task<IActionResult> Run(
         [HttpTrigger(AuthorizationLevel.Function, "get")] HttpRequest req)
     {
-        var filename = req.Query["filename"].ToString();
-        var photoId  = req.Query["photoId"].ToString();
+        var filename    = req.Query["filename"].ToString();
+        var photoId     = req.Query["photoId"].ToString();
+        var localId     = req.Query["localId"].ToString();
 
         if (string.IsNullOrEmpty(filename))
             return new BadRequestObjectResult("Required query param: filename");
@@ -57,6 +58,7 @@ public class GetUploadUrl(BlobServiceClient blobService, TableServiceClient tabl
             ["originalName"]      = filename,
             ["extension"]         = ext,
             ["photoId"]           = photoId,
+            ["localId"]           = localId,
             ["startedAt"]         = DateTimeOffset.UtcNow.ToString("o"),
             ["originalSizeBytes"] = 0L
         });

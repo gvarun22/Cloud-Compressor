@@ -43,6 +43,7 @@ public class GetCompletedJobs(BlobServiceClient blobService, TableServiceClient 
                 jobId               = job.RowKey,
                 downloadUrl         = downloadUrl.ToString(),
                 photoId             = job.GetString("photoId"),
+                localId             = job.GetString("localId"),
                 originalName        = job.GetString("originalName"),
                 originalSizeBytes   = job.GetInt64("originalSizeBytes") ?? 0L,
                 compressedSizeBytes = job.GetInt64("compressedSizeBytes") ?? 0L,

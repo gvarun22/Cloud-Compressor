@@ -144,6 +144,16 @@ class PhotoLibraryService {
         return tempURL
     }
 
+    // MARK: - Delete original
+
+    func deleteAsset(localIdentifier: String) async {
+        let result = PHAsset.fetchAssets(withLocalIdentifiers: [localIdentifier], options: nil)
+        guard result.count > 0 else { return }
+        try? await PHPhotoLibrary.shared().performChanges {
+            PHAssetChangeRequest.deleteAssets(result)
+        }
+    }
+
     // MARK: - Save to library
 
     func saveVideoToLibrary(from url: URL) async throws {

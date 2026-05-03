@@ -4,6 +4,7 @@ struct CompletedJob: Codable, Identifiable {
     let jobId: String
     let downloadUrl: String
     let photoId: String?
+    let localId: String?
     let originalName: String?
     let originalSizeBytes: Int64
     let compressedSizeBytes: Int64
