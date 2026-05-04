@@ -31,7 +31,7 @@ struct CloudCompressorApp: App {
                     SyncEngine.shared.scheduleBackgroundSync()
                     return
                 }
-                await SyncEngine.shared.sync()
+                await SyncEngine.shared.uploadBatch()
                 processingTask.setTaskCompleted(success: true)
                 SyncEngine.shared.scheduleBackgroundSync()
             }
@@ -48,11 +48,7 @@ struct CloudCompressorApp: App {
             ContentView()
                 .task {
                     guard Settings.shared.autoSyncOnOpen else { return }
-                    guard Settings.shared.isInQuietWindow() else {
-                        engine.scheduleBackgroundSync()
-                        return
-                    }
-                    await engine.sync()
+                    await engine.downloadOnly()
                     engine.scheduleBackgroundSync()
                 }
         }

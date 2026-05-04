@@ -27,7 +27,7 @@ struct LibraryView: View {
                         Button("Stop") { engine.cancelSync() }
                             .foregroundStyle(.red)
                     } else {
-                        Button("Sync Now") { engine.startSync() }
+                        Button("Upload Batch") { engine.startUploadBatch() }
                     }
                 }
             }

@@ -84,9 +84,12 @@ public class StartEncoding(
                 { Sas = outputSas.ToSasQueryParameters(delegationKey, _saName) }.ToUri();
 
             var aciName   = $"aci-{jobId}";
-            var ffmpegCmd = $"apk add --no-cache curl && mkdir -p /tmp/output && " +
-                $"ffmpeg -y -i '{inputSasUrl}' " +
-                $"-c:v libx265 -crf 24 -preset veryfast -pix_fmt yuv420p -tag:v hvc1 -c:a copy " +
+            var ffmpegCmd = $"apk add --no-cache curl && " +
+                $"curl -sf -o /tmp/input.{ext} '{inputSasUrl}' && " +
+                $"mkdir -p /tmp/output && " +
+                $"ffmpeg -y -i /tmp/input.{ext} " +
+                $"-map 0 -c copy -ignore_unknown " +
+                $"-c:v libx265 -crf 24 -preset veryfast -pix_fmt yuv420p -tag:v hvc1 " +
                 $"-map_metadata 0 -movflags use_metadata_tags " +
                 $"-metadata comment=cloudcompressor:crf24:h265:veryfast:hvc1 " +
                 $"/tmp/output/{blobName} && " +

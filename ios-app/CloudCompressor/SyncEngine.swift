@@ -35,9 +35,18 @@ final class SyncEngine {
 
     // MARK: - Public entry points
 
-    func startSync() {
+    // Called on app open — downloads completed jobs, shows delete prompts.
+    func downloadOnly() async {
         guard !isRunning else { return }
-        syncTask = Task { await sync() }
+        lastSyncResults = []
+        await downloadPhase()
+        if case .running = status { status = .completed(Date()) }
+    }
+
+    // Called by Upload Batch button and background task — uploads a batch, no downloads.
+    func startUploadBatch() {
+        guard !isRunning else { return }
+        syncTask = Task { await uploadBatch() }
     }
 
     func cancelSync() {
@@ -47,20 +56,11 @@ final class SyncEngine {
         uploadStates = [:]
     }
 
-    func sync() async {
+    func uploadBatch() async {
         guard !isRunning else { return }
         uploadStates = [:]
-        lastSyncResults = []
-
-        await downloadPhase()
-
-        guard !Task.isCancelled else { status = .idle; return }
-
         await uploadPhase()
-
-        if case .running = status {
-            status = .completed(Date())
-        }
+        if case .running = status { status = .completed(Date()) }
     }
 
     // MARK: - Download phase
