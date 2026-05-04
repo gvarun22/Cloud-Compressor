@@ -130,7 +130,9 @@ final class Settings {
            let stored = String(data: data, encoding: .utf8) {
             return stored
         }
-        let generated = UUID().uuidString
+        // Migrate from UserDefaults (previous storage) so existing Azure jobs still match
+        let generated = UserDefaults.standard.string(forKey: "deviceId") ?? UUID().uuidString
+        UserDefaults.standard.removeObject(forKey: "deviceId")
         let add: [CFString: Any] = [
             kSecClass:            kSecClassGenericPassword,
             kSecAttrAccount:      account,
