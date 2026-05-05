@@ -57,3 +57,9 @@ enum DownloadState {
     case done
     case failed(String)
 }
+
+struct UploadQueueItem: Codable, Equatable {
+    let localId: String
+    let sizeBytes: Int64
+    let filename: String
+}

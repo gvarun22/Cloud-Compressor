@@ -32,16 +32,40 @@ final class Settings {
 
     // MARK: - Processed originals (persisted to prevent re-upload after compression)
 
-    private(set) var processedPhotoIds: Set<String> = []
+    private(set) var processedPhotoIds: Set<String> = []   // content hashes (legacy dedup)
+    private(set) var processedLocalIds: Set<String> = []   // PHAsset.localIdentifier (fast dedup)
+    private(set) var uploadQueue: [UploadQueueItem] = []   // sorted by sizeBytes desc
 
     func markProcessed(_ photoId: String) {
         processedPhotoIds.insert(photoId)
         UserDefaults.standard.set(Array(processedPhotoIds), forKey: "processedPhotoIds")
     }
 
+    func markProcessedLocal(_ localId: String) {
+        processedLocalIds.insert(localId)
+        uploadQueue.removeAll { $0.localId == localId }
+        UserDefaults.standard.set(Array(processedLocalIds), forKey: "processedLocalIds")
+        persistQueue()
+    }
+
+    func setUploadQueue(_ items: [UploadQueueItem]) {
+        uploadQueue = items
+        persistQueue()
+    }
+
     func clearProcessed() {
         processedPhotoIds = []
+        processedLocalIds = []
+        uploadQueue = []
         UserDefaults.standard.removeObject(forKey: "processedPhotoIds")
+        UserDefaults.standard.removeObject(forKey: "processedLocalIds")
+        UserDefaults.standard.removeObject(forKey: "uploadQueue")
+    }
+
+    private func persistQueue() {
+        if let data = try? JSONEncoder().encode(uploadQueue) {
+            UserDefaults.standard.set(data, forKey: "uploadQueue")
+        }
     }
 
     // MARK: - Quiet window (background task only runs within this time range)
@@ -77,6 +101,11 @@ final class Settings {
         maxConcurrentUploads = ud.object(forKey: "maxConcurrentUploads") == nil ? 2 : ud.integer(forKey: "maxConcurrentUploads")
         maxUploadsPerSync    = ud.object(forKey: "maxUploadsPerSync")    == nil ? 5 : ud.integer(forKey: "maxUploadsPerSync")
         processedPhotoIds    = Set(ud.stringArray(forKey: "processedPhotoIds") ?? [])
+        processedLocalIds    = Set(ud.stringArray(forKey: "processedLocalIds") ?? [])
+        if let data = ud.data(forKey: "uploadQueue"),
+           let queue = try? JSONDecoder().decode([UploadQueueItem].self, from: data) {
+            uploadQueue = queue
+        }
         deviceId             = Settings.loadOrCreateDeviceId()
         quietWindowEnabled   = ud.bool(forKey: "quietWindowEnabled")
         quietWindowStartHour = ud.object(forKey: "quietWindowStartHour")   == nil ? 2 : ud.integer(forKey: "quietWindowStartHour")

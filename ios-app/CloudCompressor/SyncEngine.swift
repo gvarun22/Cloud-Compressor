@@ -117,15 +117,12 @@ final class SyncEngine {
                 ))
             }
 
-            // Mark the original's content hash as processed so it is never re-uploaded,
-            // even if the deletion dialog is dismissed or runs in background.
+            // Mark processed so the original is never re-uploaded.
             if let photoId = job.photoId, !photoId.isEmpty {
                 settings.markProcessed(photoId)
             }
-
-            // Attempt to delete the original — iOS shows a confirmation dialog.
-            // This works reliably in the foreground; may silently fail in background.
             if let localId = job.localId, !localId.isEmpty {
+                settings.markProcessedLocal(localId)
                 await photo.deleteAsset(localIdentifier: localId)
             }
 
@@ -141,32 +138,44 @@ final class SyncEngine {
         let authStatus = PHPhotoLibrary.authorizationStatus(for: .readWrite)
         guard authStatus == .authorized || authStatus == .limited else { return }
 
-        status = .running("Scanning library…")
+        status = .running("Updating upload queue…")
+        await refreshUploadQueue()
 
-        let allVideos = await photo.fetchVideos()
-        guard !allVideos.isEmpty else { return }
+        guard !settings.uploadQueue.isEmpty, !Task.isCancelled else {
+            if !Task.isCancelled {
+                status = .running("All videos up to date.")
+                try? await Task.sleep(for: .seconds(1))
+            }
+            return
+        }
 
         let activeLocks: Set<String>
         do { activeLocks = Set(try await azure.getActivePhotoIds()) }
         catch { activeLocks = [] }
 
-        status = .running("Evaluating \(allVideos.count) video(s)…")
-        var toUpload: [(video: VideoItem, hash: String)] = []
-
-        for video in allVideos {
+        // Walk queue front-to-back (largest first), filling the batch.
+        // Each candidate needs a hash — but only for the few items we actually upload.
+        var toUpload: [(localId: String, filename: String, hash: String)] = []
+        var idx = 0
+        while toUpload.count < settings.maxUploadsPerSync, idx < settings.uploadQueue.count {
             guard !Task.isCancelled else { break }
+            let item = settings.uploadQueue[idx]; idx += 1
 
-            guard let (asset, resource) = await photo.fetchAssetAndResource(localIdentifier: video.id) else { continue }
-
-            if let tag = await photo.readEncodeTag(for: asset),
-               tag == settings.encodeSettingsTag { continue }
-
+            guard let (asset, resource) = await photo.fetchAssetAndResource(localIdentifier: item.localId) else {
+                settings.markProcessedLocal(item.localId)   // gone from library
+                continue
+            }
+            if let tag = await photo.readEncodeTag(for: asset), tag == settings.encodeSettingsTag {
+                settings.markProcessedLocal(item.localId)   // already compressed
+                continue
+            }
             guard let hash = try? await photo.contentHash(for: resource) else { continue }
-
-            if activeLocks.contains(hash) { continue }
-            if settings.processedPhotoIds.contains(hash) { continue }
-
-            toUpload.append((video: video, hash: hash))
+            if activeLocks.contains(hash) { continue }      // in-flight from previous session
+            if settings.processedPhotoIds.contains(hash) {
+                settings.markProcessedLocal(item.localId)
+                continue
+            }
+            toUpload.append((localId: item.localId, filename: item.filename, hash: hash))
         }
 
         guard !toUpload.isEmpty, !Task.isCancelled else {
@@ -177,28 +186,41 @@ final class SyncEngine {
             return
         }
 
-        let batch = Array(toUpload.prefix(settings.maxUploadsPerSync))
-        status = .running("Uploading \(batch.count) of \(toUpload.count) video(s)…")
+        status = .running("Uploading \(toUpload.count) of \(settings.uploadQueue.count) remaining…")
 
         let maxConcurrent = settings.maxConcurrentUploads
         await withTaskGroup(of: Void.self) { group in
             var inFlight = 0
-            for item in batch {
+            for item in toUpload {
                 guard !Task.isCancelled else { break }
-                if inFlight >= maxConcurrent {
-                    await group.next()
-                    inFlight -= 1
-                }
-                let hash     = item.hash
-                let filename = item.video.filename
-                let localId  = item.video.id
-                group.addTask {
-                    await SyncEngine.shared.uploadOne(hash: hash, filename: filename, localId: localId)
-                }
+                if inFlight >= maxConcurrent { await group.next(); inFlight -= 1 }
+                let (localId, filename, hash) = (item.localId, item.filename, item.hash)
+                group.addTask { await SyncEngine.shared.uploadOne(hash: hash, filename: filename, localId: localId) }
                 inFlight += 1
             }
             await group.waitForAll()
         }
+    }
+
+    // Merges the current photo library into the persistent queue.
+    // fetchVideos() returns assets sorted by size desc with no hash I/O —
+    // only new assets (not queued, not processed) are inserted.
+    private func refreshUploadQueue() async {
+        let allVideos = await photo.fetchVideos()
+        let queuedIds = Set(settings.uploadQueue.map { $0.localId })
+
+        let newItems: [UploadQueueItem] = allVideos.compactMap { video in
+            guard !queuedIds.contains(video.id),
+                  !settings.processedLocalIds.contains(video.id) else { return nil }
+            return UploadQueueItem(localId: video.id, sizeBytes: video.fileSize, filename: video.filename)
+        }
+        guard !newItems.isEmpty else { return }
+
+        // Insert new items and re-sort. Existing order is preserved since both lists are
+        // already sorted; the merge keeps the invariant with one sort pass.
+        var updated = settings.uploadQueue + newItems
+        updated.sort { $0.sizeBytes > $1.sizeBytes }
+        settings.setUploadQueue(updated)
     }
 
     // MARK: - Single upload (nonisolated so tasks run off the main actor concurrently)
@@ -221,7 +243,10 @@ final class SyncEngine {
                 }
             }
 
-            await MainActor.run { SyncEngine.shared.uploadStates[hash] = .done }
+            await MainActor.run {
+                SyncEngine.shared.uploadStates[hash] = .done
+                Settings.shared.markProcessedLocal(localId)
+            }
         } catch {
             await MainActor.run {
                 SyncEngine.shared.uploadStates[hash] = .failed(error.localizedDescription)
