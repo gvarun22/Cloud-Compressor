@@ -19,14 +19,25 @@ public class GetCompletedJobs(BlobServiceClient blobService, TableServiceClient 
         var delegationKey = (await blobService.GetUserDelegationKeyAsync(
             DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddHours(24))).Value;
 
-        var deviceId = req.Query["deviceId"].ToString();
-        var filter   = string.IsNullOrEmpty(deviceId)
-            ? "PartitionKey eq 'jobs' and status eq 'ready'"
-            : $"PartitionKey eq 'jobs' and status eq 'ready' and deviceId eq '{deviceId}'";
+        var deviceId    = req.Query["deviceId"].ToString();
+        var baseFilter  = "PartitionKey eq 'jobs' and status eq 'ready'";
+        var deviceFilter = string.IsNullOrEmpty(deviceId)
+            ? baseFilter
+            : $"{baseFilter} and deviceId eq '{deviceId}'";
 
         var results = new List<object>();
 
-        await foreach (var job in _table.QueryAsync<TableEntity>(filter: filter))
+        // Try device-scoped query first; fall back to all ready jobs if nothing matches.
+        // This handles signing-context mismatches (Xcode debug vs AltStore vs App Store)
+        // where the same physical device may upload under different deviceIds.
+        var jobs = new List<TableEntity>();
+        await foreach (var job in _table.QueryAsync<TableEntity>(filter: deviceFilter))
+            jobs.Add(job);
+        if (jobs.Count == 0 && !string.IsNullOrEmpty(deviceId))
+            await foreach (var job in _table.QueryAsync<TableEntity>(filter: baseFilter))
+                jobs.Add(job);
+
+        foreach (var job in jobs)
         {
             var blobName   = job.GetString("outputBlobName")!;
             var outputBlob = blobService.GetBlobContainerClient("output").GetBlobClient(blobName);

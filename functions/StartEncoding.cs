@@ -84,28 +84,25 @@ public class StartEncoding(
                 { Sas = outputSas.ToSasQueryParameters(delegationKey, _saName) }.ToUri();
 
             var aciName   = $"aci-{jobId}";
-            // Two-pass encoding to reliably preserve Apple QuickTime metadata (GPS, camera model,
-            // lens info). Pass 1 encodes video/audio. Pass 2 remuxes with the original file as
-            // the metadata source, including its data tracks (timed GPS/camera metadata streams).
-            var ffmpegCmd = $"apk add --no-cache curl && " +
+            // FFmpeg cannot round-trip Apple timed metadata tracks (mebx streams) that carry
+            // camera model, lens, and GPS. exiftool handles Apple QuickTime metadata correctly.
+            // Step 1: FFmpeg encodes video/audio.
+            // Step 2: exiftool copies all QuickTime metadata from original to output.
+            // Step 3: exiftool re-sets our encode marker (TagsFromFile may overwrite it).
+            // FFmpeg cannot round-trip the Apple mebx timed metadata track (lens model, GPS) through
+            // its MOV muxer. MP4Box (GPAC) grafts that track from the original at the container level.
+            // exiftool then copies Keys/ilst atoms (camera model, creation time, location ISO6709).
+            var ffmpegCmd = $"apk add --no-cache curl exiftool gpac && " +
                 $"curl -sf -o /tmp/input.{ext} '{inputSasUrl}' && " +
                 $"mkdir -p /tmp/output && " +
                 $"ffmpeg -y -i /tmp/input.{ext} " +
                 $"-map 0:v:0 -map 0:a " +
                 $"-c:v libx265 -crf 24 -preset veryfast -pix_fmt yuv420p -tag:v hvc1 " +
                 $"-c:a copy " +
-                $"/tmp/encoded.{ext} && " +
-                $"ffmpeg -y " +
-                $"-i /tmp/encoded.{ext} " +
-                $"-i /tmp/input.{ext} " +
-                $"-map 0:v:0 -map 0:a " +
-                $"-map 1:d? " +
-                $"-map_metadata 1 " +
-                $"-c copy " +
-                $"-copy_unknown " +
-                $"-movflags use_metadata_tags " +
-                $"-metadata comment=cloudcompressor:crf24:h265:veryfast:hvc1 " +
                 $"/tmp/output/{blobName} && " +
+                $"(MP4Box -add /tmp/output/{blobName} -add /tmp/input.{ext}#3 -out /tmp/output/{blobName}.merged 2>/dev/null && mv /tmp/output/{blobName}.merged /tmp/output/{blobName} || rm -f /tmp/output/{blobName}.merged) && " +
+                $"exiftool -overwrite_original -TagsFromFile /tmp/input.{ext} '-QuickTime:all>QuickTime:all' /tmp/output/{blobName} && " +
+                $"exiftool -overwrite_original '-Comment=cloudcompressor:crf24:h265:veryfast:hvc1' /tmp/output/{blobName} && " +
                 $"curl -sf -X PUT " +
                 $"-H 'x-ms-blob-type: BlockBlob' " +
                 $"-H 'Content-Type: application/octet-stream' " +

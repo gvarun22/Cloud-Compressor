@@ -13,6 +13,8 @@ class AzureService {
         let config = URLSessionConfiguration.background(withIdentifier: "cloudcompressor.upload")
         config.isDiscretionary = false
         config.sessionSendsLaunchEvents = true
+        config.timeoutIntervalForRequest  = 3600   // 1 h — allows iOS to schedule the transfer after app suspension
+        config.timeoutIntervalForResource = 86400  // 24 h — covers large files on slow connections
         return URLSession(configuration: config, delegate: UploadSessionDelegate.shared, delegateQueue: nil)
     }()
 
