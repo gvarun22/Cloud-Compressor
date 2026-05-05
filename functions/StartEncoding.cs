@@ -84,13 +84,26 @@ public class StartEncoding(
                 { Sas = outputSas.ToSasQueryParameters(delegationKey, _saName) }.ToUri();
 
             var aciName   = $"aci-{jobId}";
+            // Two-pass encoding to reliably preserve Apple QuickTime metadata (GPS, camera model,
+            // lens info). Pass 1 encodes video/audio. Pass 2 remuxes with the original file as
+            // the metadata source, including its data tracks (timed GPS/camera metadata streams).
             var ffmpegCmd = $"apk add --no-cache curl && " +
                 $"curl -sf -o /tmp/input.{ext} '{inputSasUrl}' && " +
                 $"mkdir -p /tmp/output && " +
                 $"ffmpeg -y -i /tmp/input.{ext} " +
-                $"-map 0 -c copy -ignore_unknown " +
+                $"-map 0:v:0 -map 0:a " +
                 $"-c:v libx265 -crf 24 -preset veryfast -pix_fmt yuv420p -tag:v hvc1 " +
-                $"-map_metadata 0 -movflags use_metadata_tags " +
+                $"-c:a copy " +
+                $"/tmp/encoded.{ext} && " +
+                $"ffmpeg -y " +
+                $"-i /tmp/encoded.{ext} " +
+                $"-i /tmp/input.{ext} " +
+                $"-map 0:v:0 -map 0:a " +
+                $"-map 1:d? " +
+                $"-map_metadata 1 " +
+                $"-c copy " +
+                $"-copy_unknown " +
+                $"-movflags use_metadata_tags " +
                 $"-metadata comment=cloudcompressor:crf24:h265:veryfast:hvc1 " +
                 $"/tmp/output/{blobName} && " +
                 $"curl -sf -X PUT " +

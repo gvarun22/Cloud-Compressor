@@ -47,8 +47,9 @@ struct CloudCompressorApp: App {
         WindowGroup {
             ContentView()
                 .task {
-                    guard Settings.shared.autoSyncOnOpen else { return }
-                    await engine.downloadOnly()
+                    if Settings.shared.autoSyncOnOpen {
+                        await engine.downloadIfDue()
+                    }
                     engine.scheduleBackgroundSync()
                 }
         }

@@ -27,6 +27,15 @@ final class SyncEngine {
         return false
     }
 
+    private var lastAutoDownload: Date = .distantPast
+
+    // Calls downloadOnly() only if not already running and > 5 min since last auto-download.
+    func downloadIfDue() async {
+        guard !isRunning, Date().timeIntervalSince(lastAutoDownload) > 300 else { return }
+        lastAutoDownload = Date()
+        await downloadOnly()
+    }
+
     private let settings     = Settings.shared
     private let photo        = PhotoLibraryService.shared
     private let azure        = AzureService.shared
