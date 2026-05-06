@@ -30,14 +30,14 @@ public class GetCompletedJobs(BlobServiceClient blobService, TableServiceClient 
         // Try device-scoped query first; fall back to all ready jobs if nothing matches.
         // This handles signing-context mismatches (Xcode debug vs AltStore vs App Store)
         // where the same physical device may upload under different deviceIds.
-        var jobs = new List<TableEntity>();
+        var readyJobs = new List<TableEntity>();
         await foreach (var job in _table.QueryAsync<TableEntity>(filter: deviceFilter))
-            jobs.Add(job);
-        if (jobs.Count == 0 && !string.IsNullOrEmpty(deviceId))
+            readyJobs.Add(job);
+        if (readyJobs.Count == 0 && !string.IsNullOrEmpty(deviceId))
             await foreach (var job in _table.QueryAsync<TableEntity>(filter: baseFilter))
-                jobs.Add(job);
+                readyJobs.Add(job);
 
-        foreach (var job in jobs)
+        foreach (var job in readyJobs)
         {
             var blobName   = job.GetString("outputBlobName")!;
             var outputBlob = blobService.GetBlobContainerClient("output").GetBlobClient(blobName);
@@ -55,6 +55,7 @@ public class GetCompletedJobs(BlobServiceClient blobService, TableServiceClient 
 
             results.Add(new
             {
+                status              = "ready",
                 jobId               = job.RowKey,
                 downloadUrl         = downloadUrl.ToString(),
                 photoId             = job.GetString("photoId"),
@@ -63,6 +64,26 @@ public class GetCompletedJobs(BlobServiceClient blobService, TableServiceClient 
                 originalSizeBytes   = job.GetInt64("originalSizeBytes") ?? 0L,
                 compressedSizeBytes = job.GetInt64("compressedSizeBytes") ?? 0L,
                 completedAt         = job.GetString("completedAt")
+            });
+        }
+
+        // Return failed jobs so the iOS app can re-queue those videos for upload.
+        var failedFilter = string.IsNullOrEmpty(deviceId)
+            ? "PartitionKey eq 'jobs' and status eq 'failed'"
+            : $"PartitionKey eq 'jobs' and status eq 'failed' and deviceId eq '{deviceId}'";
+        await foreach (var job in _table.QueryAsync<TableEntity>(filter: failedFilter))
+        {
+            results.Add(new
+            {
+                status    = "failed",
+                jobId     = job.RowKey,
+                downloadUrl = (string?)null,
+                photoId   = job.GetString("photoId"),
+                localId   = job.GetString("localId"),
+                originalName = job.GetString("originalName"),
+                originalSizeBytes   = job.GetInt64("originalSizeBytes") ?? 0L,
+                compressedSizeBytes = 0L,
+                completedAt = (string?)null
             });
         }
 

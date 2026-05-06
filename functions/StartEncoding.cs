@@ -84,16 +84,11 @@ public class StartEncoding(
                 { Sas = outputSas.ToSasQueryParameters(delegationKey, _saName) }.ToUri();
 
             var aciName   = $"aci-{jobId}";
-            // FFmpeg cannot round-trip Apple timed metadata tracks (mebx streams) that carry
-            // camera model, lens, and GPS. exiftool handles Apple QuickTime metadata correctly.
-            // Step 1: FFmpeg encodes video/audio.
-            // Step 2: exiftool copies all QuickTime metadata from original to output.
-            // Step 3: exiftool re-sets our encode marker (TagsFromFile may overwrite it).
-            // FFmpeg cannot round-trip the Apple mebx timed metadata track (lens model, GPS) through
-            // its MOV muxer. MP4Box (GPAC) grafts that track from the original at the container level.
-            // exiftool then copies Keys/ilst atoms (camera model, creation time, location ISO6709).
-            var ffmpegCmd = $"apk add --no-cache curl exiftool gpac && " +
-                $"curl -sf -o /tmp/input.{ext} '{inputSasUrl}' && " +
+            // Pipeline: FFmpeg re-encodes video/audio; MP4Box grafts the Apple mebx timed metadata
+            // track (lens model, GPS) which FFmpeg's MOV muxer cannot write; exiftool copies the
+            // Keys/ilst atoms (camera model, creation time) and stamps the encode marker.
+            // All tools are pre-installed in the custom encoder image — no runtime apk installs.
+            var ffmpegCmd = $"curl -sf -o /tmp/input.{ext} '{inputSasUrl}' && " +
                 $"mkdir -p /tmp/output && " +
                 $"ffmpeg -y -i /tmp/input.{ext} " +
                 $"-map 0:v:0 -map 0:a " +
@@ -113,7 +108,7 @@ public class StartEncoding(
                 [
                     new ContainerInstanceContainer(
                         "ffmpeg",
-                        $"{_acrServer}/ffmpeg:4.4-alpine",
+                        $"{_acrServer}/encoder:latest",
                         new ContainerResourceRequirements(
                             new ContainerResourceRequestsContent(1.5, 1.0)))
                     {

@@ -53,6 +53,11 @@ final class Settings {
         persistQueue()
     }
 
+    func removeProcessedLocal(_ localId: String) {
+        processedLocalIds.remove(localId)
+        UserDefaults.standard.set(Array(processedLocalIds), forKey: "processedLocalIds")
+    }
+
     func clearProcessed() {
         processedPhotoIds = []
         processedLocalIds = []

@@ -20,7 +20,11 @@ final class SyncEngine {
 
     var status: SyncStatus = .idle
     var uploadStates: [String: UploadState] = [:]  // contentHash → state
-    var lastSyncResults: [SyncedVideo] = []
+    var lastSyncResults: [SyncedVideo] = {
+        guard let data = UserDefaults.standard.data(forKey: "lastSyncResults"),
+              let saved = try? JSONDecoder().decode([SyncedVideo].self, from: data) else { return [] }
+        return saved
+    }()
 
     var isRunning: Bool {
         if case .running = status { return true }
@@ -47,7 +51,6 @@ final class SyncEngine {
     // Called on app open — downloads completed jobs, shows delete prompts.
     func downloadOnly() async {
         guard !isRunning else { return }
-        lastSyncResults = []
         await downloadPhase()
         if case .running = status { status = .completed(Date()) }
     }
@@ -81,17 +84,27 @@ final class SyncEngine {
         do { jobs = try await azure.getCompletedJobs() }
         catch { status = .failed("Download check failed: \(error.localizedDescription)"); return }
 
-        guard !jobs.isEmpty else { return }
+        // Re-queue any failed jobs so they get picked up by the next upload batch.
+        let failedJobs = jobs.filter { $0.status == "failed" }
+        for job in failedJobs {
+            if let localId = job.localId, !localId.isEmpty {
+                settings.removeProcessedLocal(localId)
+            }
+        }
 
-        status = .running("Downloading \(jobs.count) job(s)…")
-        for job in jobs {
+        let readyJobs = jobs.filter { $0.status != "failed" }
+        guard !readyJobs.isEmpty else { return }
+
+        lastSyncResults = []  // clear only when new downloads are actually starting
+        status = .running("Downloading \(readyJobs.count) job(s)…")
+        for job in readyJobs {
             guard !Task.isCancelled else { break }
             await downloadAndSave(job)
         }
     }
 
     private func downloadAndSave(_ job: CompletedJob) async {
-        guard let downloadURL = URL(string: job.downloadUrl) else { return }
+        guard let urlString = job.downloadUrl, let downloadURL = URL(string: urlString) else { return }
         do {
             let (tempURL, _) = try await URLSession.shared.download(from: downloadURL)
 
@@ -115,6 +128,9 @@ final class SyncEngine {
                     localIdentifier: savedId,
                     savedAt: Date()
                 ))
+                if let data = try? JSONEncoder().encode(lastSyncResults) {
+                    UserDefaults.standard.set(data, forKey: "lastSyncResults")
+                }
             }
 
             // Mark processed so the original is never re-uploaded.

@@ -1,8 +1,9 @@
 import Foundation
 
 struct CompletedJob: Codable, Identifiable {
+    let status: String?          // "ready" or "failed"
     let jobId: String
-    let downloadUrl: String
+    let downloadUrl: String?
     let photoId: String?
     let localId: String?
     let originalName: String?
@@ -31,13 +32,23 @@ struct VideoItem: Identifiable {
     let duration: TimeInterval
 }
 
-struct SyncedVideo: Identifiable {
-    let id = UUID()
+struct SyncedVideo: Identifiable, Codable {
+    let id: UUID
     let filename: String
     let originalSizeBytes: Int64
     let compressedSizeBytes: Int64
     let localIdentifier: String  // PHAsset.localIdentifier of the saved compressed video
     let savedAt: Date
+
+    init(filename: String, originalSizeBytes: Int64, compressedSizeBytes: Int64,
+         localIdentifier: String, savedAt: Date) {
+        self.id               = UUID()
+        self.filename         = filename
+        self.originalSizeBytes  = originalSizeBytes
+        self.compressedSizeBytes = compressedSizeBytes
+        self.localIdentifier  = localIdentifier
+        self.savedAt          = savedAt
+    }
 
     var savingsPercent: Int {
         guard originalSizeBytes > 0 else { return 0 }
