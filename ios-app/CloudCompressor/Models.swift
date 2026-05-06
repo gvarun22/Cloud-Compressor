@@ -58,7 +58,7 @@ struct SyncedVideo: Identifiable, Codable {
 
 enum UploadState {
     case uploading(Double)
-    case done
+    case done(Date)
     case failed(String)
 }
 

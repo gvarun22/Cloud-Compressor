@@ -1,6 +1,7 @@
 # Build output
 functions/bin/
 functions/obj/
+functions/deploy.zip
 publish/
 publish.zip
 
@@ -17,8 +18,8 @@ local.settings.json
 .vs/
 *.user
 
-# Claude Code local settings
-.claude/settings.local.json
+# Claude Code working directory
+.claude/
 
 # Xcode
 xcuserdata/

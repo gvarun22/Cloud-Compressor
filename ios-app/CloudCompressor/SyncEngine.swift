@@ -19,7 +19,8 @@ final class SyncEngine {
     private init() {}
 
     var status: SyncStatus = .idle
-    var uploadStates: [String: UploadState] = [:]  // contentHash → state
+    var uploadStates: [String: UploadState] = [:]     // contentHash → state
+    var uploadFilenames: [String: String] = [:]       // contentHash → filename
     var lastSyncResults: [SyncedVideo] = {
         guard let data = UserDefaults.standard.data(forKey: "lastSyncResults"),
               let saved = try? JSONDecoder().decode([SyncedVideo].self, from: data) else { return [] }
@@ -66,11 +67,13 @@ final class SyncEngine {
         syncTask = nil
         status = .idle
         uploadStates = [:]
+        uploadFilenames = [:]
     }
 
     func uploadBatch() async {
         guard !isRunning else { return }
         uploadStates = [:]
+        uploadFilenames = [:]
         await uploadPhase()
         if case .running = status { status = .completed(Date()) }
     }
@@ -242,7 +245,10 @@ final class SyncEngine {
     // MARK: - Single upload (nonisolated so tasks run off the main actor concurrently)
 
     nonisolated func uploadOne(hash: String, filename: String, localId: String) async {
-        await MainActor.run { SyncEngine.shared.uploadStates[hash] = .uploading(0) }
+        await MainActor.run {
+            SyncEngine.shared.uploadStates[hash] = .uploading(0)
+            SyncEngine.shared.uploadFilenames[hash] = filename
+        }
         do {
             let resp = try await AzureService.shared.getUploadUrl(filename: filename, photoId: hash, localId: localId)
             guard let sasURL = URL(string: resp.uploadUrl) else {
@@ -260,7 +266,7 @@ final class SyncEngine {
             }
 
             await MainActor.run {
-                SyncEngine.shared.uploadStates[hash] = .done
+                SyncEngine.shared.uploadStates[hash] = .done(Date())
                 Settings.shared.markProcessedLocal(localId)
             }
         } catch {

@@ -62,7 +62,10 @@ struct LibraryView: View {
             if !engine.uploadStates.isEmpty {
                 Section("Current Uploads") {
                     ForEach(Array(engine.uploadStates), id: \.key) { hash, state in
-                        UploadProgressRow(hash: hash, state: state)
+                        UploadProgressRow(
+                            filename: engine.uploadFilenames[hash] ?? hash,
+                            state: state
+                        )
                     }
                 }
             }
@@ -120,19 +123,24 @@ struct LibraryView: View {
 }
 
 struct UploadProgressRow: View {
-    let hash: String
+    let filename: String
     let state: UploadState
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(hash).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+            Text(filename).font(.body).lineLimit(1)
             switch state {
             case .uploading(let p):
                 ProgressView(value: p).tint(.accentColor)
                 Text("\(Int(p * 100))%").font(.caption).foregroundStyle(.secondary)
-            case .done:
-                Label("Uploaded", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
-                    .font(.caption)
+            case .done(let date):
+                HStack {
+                    Label("Uploaded", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+                    Spacer()
+                    Text(date.formatted(date: .omitted, time: .shortened))
+                        .foregroundStyle(.secondary)
+                }
+                .font(.caption)
             case .failed(let msg):
                 Label(msg, systemImage: "xmark.circle.fill").foregroundStyle(.red)
                     .font(.caption).lineLimit(2)

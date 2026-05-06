@@ -49,8 +49,13 @@ struct SyncedVideoRow: View {
                 }
             }
             .font(.caption).foregroundStyle(.secondary)
-            Label("Tap to preview", systemImage: "play.circle")
-                .font(.caption2).foregroundStyle(.tertiary)
+            HStack {
+                Label("Tap to preview", systemImage: "play.circle")
+                    .font(.caption2).foregroundStyle(.tertiary)
+                Spacer()
+                Text("Saved \(video.savedAt.formatted(date: .abbreviated, time: .shortened))")
+                    .font(.caption2).foregroundStyle(.tertiary)
+            }
         }
         .padding(.vertical, 4)
     }
