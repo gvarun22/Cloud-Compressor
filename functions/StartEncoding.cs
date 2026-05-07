@@ -89,12 +89,21 @@ public class StartEncoding(
             // track (lens model, GPS) which FFmpeg's MOV muxer cannot write; exiftool copies the
             // Keys/ilst atoms (camera model, creation time) and stamps the encode marker.
             // All tools are pre-installed in the custom encoder image — no runtime apk installs.
+            //
+            // Color metadata: libx265 does not copy color primaries/transfer/matrix from the input
+            // automatically — it emits 'unspecified' and players guess wrong, causing washed-out
+            // colors. We ffprobe the actual values from the source and pass them explicitly.
             var ffmpegCmd = $"curl -sf -o /tmp/input.{ext} '{inputSasUrl}' && " +
                 $"mkdir -p /tmp/output && " +
+                $"CP=$(ffprobe -v error -select_streams v:0 -show_entries stream=color_primaries -of csv=p=0 /tmp/input.{ext} 2>/dev/null); " +
+                $"CT=$(ffprobe -v error -select_streams v:0 -show_entries stream=color_transfer  -of csv=p=0 /tmp/input.{ext} 2>/dev/null); " +
+                $"CS=$(ffprobe -v error -select_streams v:0 -show_entries stream=color_space     -of csv=p=0 /tmp/input.{ext} 2>/dev/null); " +
                 $"ffmpeg -y -i /tmp/input.{ext} " +
                 $"-map 0:v:0 -map 0:a " +
                 $"-c:v libx265 -crf {crf} -preset veryfast -tag:v hvc1 " +
-                $"-color_primaries copy -color_trc copy -colorspace copy " +
+                $"-pix_fmt yuv420p10le " +
+                $"-x265-params hdr-opt=1 " +
+                $"${{CP:+-color_primaries $CP}} ${{CT:+-color_trc $CT}} ${{CS:+-colorspace $CS}} " +
                 $"-c:a copy " +
                 $"/tmp/output/{blobName} && " +
                 $"(MP4Box -add /tmp/output/{blobName} -add /tmp/input.{ext}#3 -out /tmp/output/{blobName}.merged 2>/dev/null && mv /tmp/output/{blobName}.merged /tmp/output/{blobName} || rm -f /tmp/output/{blobName}.merged) && " +
