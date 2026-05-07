@@ -23,9 +23,20 @@ public class GetUploadUrl(BlobServiceClient blobService, TableServiceClient tabl
         var photoId     = req.Query["photoId"].ToString();
         var localId     = req.Query["localId"].ToString();
         var deviceId    = req.Query["deviceId"].ToString();
+        var crfParam    = req.Query["crf"].ToString();
 
         if (string.IsNullOrEmpty(filename))
             return new BadRequestObjectResult("Required query param: filename");
+
+        int crf;
+        if (string.IsNullOrEmpty(crfParam))
+        {
+            crf = 24;
+        }
+        else if (!int.TryParse(crfParam, out crf) || crf is not (18 or 22 or 24))
+        {
+            return new BadRequestObjectResult("crf must be 18, 22, or 24");
+        }
 
         var ext = Path.GetExtension(filename).TrimStart('.').ToLower();
         if (!AllowedExtensions.Contains(ext))
@@ -61,6 +72,7 @@ public class GetUploadUrl(BlobServiceClient blobService, TableServiceClient tabl
             ["photoId"]           = photoId,
             ["localId"]           = localId,
             ["deviceId"]          = deviceId,
+            ["crf"]               = crf,
             ["startedAt"]         = DateTimeOffset.UtcNow.ToString("o"),
             ["originalSizeBytes"] = 0L
         });

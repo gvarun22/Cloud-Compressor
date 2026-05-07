@@ -92,9 +92,14 @@ final class Settings {
     }
 
     // MARK: - Encode settings
-    // Must match the -metadata comment= value written by StartEncoding.cs.
-    // If you change the FFmpeg command in Azure, update this string to match.
-    let encodeSettingsTag = "cloudcompressor:crf24:h265:veryfast:hvc1"
+
+    var crf: Int {
+        didSet { set("crf", crf) }
+    }
+
+    // Matches the -Comment tag written by StartEncoding.cs. Videos already encoded at the
+    // current CRF are skipped; changing CRF makes existing videos re-eligible for encoding.
+    var encodeSettingsTag: String { "cloudcompressor:crf\(crf):h265:veryfast:hvc1:cp" }
 
     // MARK: - Init
 
@@ -111,6 +116,7 @@ final class Settings {
            let queue = try? JSONDecoder().decode([UploadQueueItem].self, from: data) {
             uploadQueue = queue
         }
+        crf                  = ud.object(forKey: "crf") == nil ? 24 : ud.integer(forKey: "crf")
         deviceId             = Settings.loadOrCreateDeviceId()
         quietWindowEnabled   = ud.bool(forKey: "quietWindowEnabled")
         quietWindowStartHour = ud.object(forKey: "quietWindowStartHour")   == nil ? 2 : ud.integer(forKey: "quietWindowStartHour")

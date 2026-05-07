@@ -53,6 +53,7 @@ public class StartEncoding(
             var jobId    = job.RowKey;
             var ext      = job.GetString("extension") ?? "mp4";
             var blobName = $"{jobId}.{ext}";
+            var crf      = job.GetInt32("crf") ?? 24;
 
             var inputBlob = blobService.GetBlobContainerClient("input").GetBlobClient(blobName);
             if (!await inputBlob.ExistsAsync())
@@ -92,12 +93,13 @@ public class StartEncoding(
                 $"mkdir -p /tmp/output && " +
                 $"ffmpeg -y -i /tmp/input.{ext} " +
                 $"-map 0:v:0 -map 0:a " +
-                $"-c:v libx265 -crf 24 -preset veryfast -pix_fmt yuv420p -tag:v hvc1 " +
+                $"-c:v libx265 -crf {crf} -preset veryfast -tag:v hvc1 " +
+                $"-color_primaries copy -color_trc copy -colorspace copy " +
                 $"-c:a copy " +
                 $"/tmp/output/{blobName} && " +
                 $"(MP4Box -add /tmp/output/{blobName} -add /tmp/input.{ext}#3 -out /tmp/output/{blobName}.merged 2>/dev/null && mv /tmp/output/{blobName}.merged /tmp/output/{blobName} || rm -f /tmp/output/{blobName}.merged) && " +
                 $"exiftool -overwrite_original -TagsFromFile /tmp/input.{ext} '-QuickTime:all>QuickTime:all' /tmp/output/{blobName} && " +
-                $"exiftool -overwrite_original '-Comment=cloudcompressor:crf24:h265:veryfast:hvc1' /tmp/output/{blobName} && " +
+                $"exiftool -overwrite_original '-Comment=cloudcompressor:crf{crf}:h265:veryfast:hvc1:cp' /tmp/output/{blobName} && " +
                 $"curl -sf -X PUT " +
                 $"-H 'x-ms-blob-type: BlockBlob' " +
                 $"-H 'Content-Type: application/octet-stream' " +

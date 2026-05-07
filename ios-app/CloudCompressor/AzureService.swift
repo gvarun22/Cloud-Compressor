@@ -24,7 +24,8 @@ class AzureService {
             URLQueryItem(name: "filename", value: filename),
             URLQueryItem(name: "photoId",  value: photoId),
             URLQueryItem(name: "localId",  value: localId),
-            URLQueryItem(name: "deviceId", value: Settings.shared.deviceId)
+            URLQueryItem(name: "deviceId", value: Settings.shared.deviceId),
+            URLQueryItem(name: "crf",      value: String(Settings.shared.crf))
         ]
         var req = URLRequest(url: comps.url!)
         authHeaders.forEach { req.setValue($1, forHTTPHeaderField: $0) }

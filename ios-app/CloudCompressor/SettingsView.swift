@@ -33,8 +33,13 @@ struct SettingsView: View {
                         "Max uploads per sync: \(settings.maxUploadsPerSync)",
                         value: $settings.maxUploadsPerSync, in: 1...50
                     )
+                    Picker("Encode quality (CRF)", selection: $settings.crf) {
+                        Text("High (CRF 18)").tag(18)
+                        Text("Balanced (CRF 22)").tag(22)
+                        Text("Efficient (CRF 24)").tag(24)
+                    }
                 } header: { Text("Sync Behaviour") }
-                  footer: { Text("Background sync also runs automatically when idle on WiFi.") }
+                  footer: { Text("Background sync also runs automatically when idle on WiFi. Changing quality only affects new uploads — already-queued videos keep their original setting.") }
 
                 // MARK: Quiet window
                 Section {
