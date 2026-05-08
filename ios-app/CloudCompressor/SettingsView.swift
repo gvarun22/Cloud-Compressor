@@ -83,13 +83,7 @@ struct SettingsView: View {
                     Text("The next sync will re-evaluate all videos. Already-compressed videos with the encode tag embedded will still be skipped.")
                 }
 
-                // MARK: Encode settings (read-only info)
-                Section {
-                    LabeledContent("Current tag", value: settings.encodeSettingsTag)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } header: { Text("Encode Settings Tag") }
-                  footer: { Text("Videos already compressed with this tag are skipped. If you change the FFmpeg command in Azure, update encodeSettingsTag in Settings.swift to match.") }
+
             }
             .navigationTitle("Settings")
         }
