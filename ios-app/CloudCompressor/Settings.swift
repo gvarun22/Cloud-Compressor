@@ -32,9 +32,10 @@ final class Settings {
 
     // MARK: - Processed originals (persisted to prevent re-upload after compression)
 
-    private(set) var processedPhotoIds: Set<String> = []   // content hashes (legacy dedup)
-    private(set) var processedLocalIds: Set<String> = []   // PHAsset.localIdentifier (fast dedup)
-    private(set) var uploadQueue: [UploadQueueItem] = []   // sorted by sizeBytes desc
+    private(set) var processedPhotoIds: Set<String> = []        // content hashes (legacy dedup)
+    private(set) var processedLocalIds: Set<String> = []        // PHAsset.localIdentifier (fast dedup)
+    private(set) var compressedCrfs: [String: Int] = [:]        // localId of compressed copy → CRF used
+    private(set) var uploadQueue: [UploadQueueItem] = []         // two-tier: unencoded first, re-encode second
 
     func markProcessed(_ photoId: String) {
         processedPhotoIds.insert(photoId)
@@ -46,6 +47,12 @@ final class Settings {
         uploadQueue.removeAll { $0.localId == localId }
         UserDefaults.standard.set(Array(processedLocalIds), forKey: "processedLocalIds")
         persistQueue()
+    }
+
+    func markCompressed(_ localId: String, crf: Int) {
+        compressedCrfs[localId] = crf
+        persistCompressedCrfs()
+        markProcessedLocal(localId)
     }
 
     func setUploadQueue(_ items: [UploadQueueItem]) {
@@ -61,10 +68,18 @@ final class Settings {
     func clearProcessed() {
         processedPhotoIds = []
         processedLocalIds = []
-        uploadQueue = []
+        compressedCrfs    = [:]
+        uploadQueue       = []
         UserDefaults.standard.removeObject(forKey: "processedPhotoIds")
         UserDefaults.standard.removeObject(forKey: "processedLocalIds")
+        UserDefaults.standard.removeObject(forKey: "compressedCrfs")
         UserDefaults.standard.removeObject(forKey: "uploadQueue")
+    }
+
+    private func persistCompressedCrfs() {
+        if let data = try? JSONEncoder().encode(compressedCrfs) {
+            UserDefaults.standard.set(data, forKey: "compressedCrfs")
+        }
     }
 
     private func persistQueue() {
@@ -94,12 +109,25 @@ final class Settings {
     // MARK: - Encode settings
 
     var crf: Int {
-        didSet { set("crf", crf) }
+        didSet {
+            set("crf", crf)
+            // Remove compressed copies encoded at a different CRF so they re-enter the queue.
+            let toRequeue = compressedCrfs.filter { $0.value != crf }.map { $0.key }
+            guard !toRequeue.isEmpty else { return }
+            toRequeue.forEach { processedLocalIds.remove($0) }
+            UserDefaults.standard.set(Array(processedLocalIds), forKey: "processedLocalIds")
+        }
     }
 
-    // Matches the -Comment tag written by StartEncoding.cs. Videos already encoded at the
-    // current CRF are skipped; changing CRF makes existing videos re-eligible for encoding.
-    var encodeSettingsTag: String { "cloudcompressor:crf\(crf):h265:veryfast:hvc1:cp" }
+    // Parses "cloudcompressor:v1:crf22:2026-05-07T..." or older "cloudcompressor:crf22:h265:..."
+    // Returns the CRF value embedded in the tag, or nil if not a pipeline tag.
+    static func parseCrf(from tag: String) -> Int? {
+        guard tag.hasPrefix("cloudcompressor:") else { return nil }
+        for part in tag.split(separator: ":") {
+            if part.hasPrefix("crf"), let n = Int(part.dropFirst(3)) { return n }
+        }
+        return nil
+    }
 
     // MARK: - Init
 
@@ -117,6 +145,10 @@ final class Settings {
             uploadQueue = queue
         }
         crf                  = ud.object(forKey: "crf") == nil ? 24 : ud.integer(forKey: "crf")
+        if let data = ud.data(forKey: "compressedCrfs"),
+           let crfs = try? JSONDecoder().decode([String: Int].self, from: data) {
+            compressedCrfs = crfs
+        }
         deviceId             = Settings.loadOrCreateDeviceId()
         quietWindowEnabled   = ud.bool(forKey: "quietWindowEnabled")
         quietWindowStartHour = ud.object(forKey: "quietWindowStartHour")   == nil ? 2 : ud.integer(forKey: "quietWindowStartHour")

@@ -124,6 +124,7 @@ final class SyncEngine {
 
             let savedId = try await photo.saveVideoToLibrary(from: named)
             if let savedId {
+                settings.markCompressed(savedId, crf: job.crf ?? settings.crf)
                 lastSyncResults.append(SyncedVideo(
                     filename: filename,
                     originalSizeBytes: job.originalSizeBytes,
@@ -184,9 +185,13 @@ final class SyncEngine {
                 settings.markProcessedLocal(item.localId)   // gone from library
                 continue
             }
-            if let tag = await photo.readEncodeTag(for: asset), tag == settings.encodeSettingsTag {
-                settings.markProcessedLocal(item.localId)   // already compressed
-                continue
+            if let tag = await photo.readEncodeTag(for: asset),
+               let tagCrf = Settings.parseCrf(from: tag) {
+                if tagCrf == settings.crf {
+                    settings.markCompressed(item.localId, crf: tagCrf)  // same quality — done permanently
+                    continue
+                }
+                // tag exists but different CRF — fall through to re-encode
             }
             guard let hash = try? await photo.contentHash(for: resource) else { continue }
             if activeLocks.contains(hash) { continue }      // in-flight from previous session
@@ -231,14 +236,18 @@ final class SyncEngine {
         let newItems: [UploadQueueItem] = allVideos.compactMap { video in
             guard !queuedIds.contains(video.id),
                   !settings.processedLocalIds.contains(video.id) else { return nil }
-            return UploadQueueItem(localId: video.id, sizeBytes: video.fileSize, filename: video.filename)
+            let prevCrf = settings.compressedCrfs[video.id]
+            return UploadQueueItem(localId: video.id, sizeBytes: video.fileSize,
+                                   filename: video.filename, previousCrf: prevCrf)
         }
         guard !newItems.isEmpty else { return }
 
-        // Insert new items and re-sort. Existing order is preserved since both lists are
-        // already sorted; the merge keeps the invariant with one sort pass.
         var updated = settings.uploadQueue + newItems
-        updated.sort { $0.sizeBytes > $1.sizeBytes }
+        // Two-tier sort: never-encoded first, re-encode candidates second — largest first within each tier.
+        updated.sort {
+            if ($0.previousCrf == nil) != ($1.previousCrf == nil) { return $0.previousCrf == nil }
+            return $0.sizeBytes > $1.sizeBytes
+        }
         settings.setUploadQueue(updated)
     }
 

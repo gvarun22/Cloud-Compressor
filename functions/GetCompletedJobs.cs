@@ -63,7 +63,8 @@ public class GetCompletedJobs(BlobServiceClient blobService, TableServiceClient 
                 originalName        = job.GetString("originalName"),
                 originalSizeBytes   = job.GetInt64("originalSizeBytes") ?? 0L,
                 compressedSizeBytes = job.GetInt64("compressedSizeBytes") ?? 0L,
-                completedAt         = job.GetString("completedAt")
+                completedAt         = job.GetString("completedAt"),
+                crf                 = job.GetInt32("crf") ?? 24
             });
         }
 

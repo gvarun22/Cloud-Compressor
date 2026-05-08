@@ -10,6 +10,7 @@ struct CompletedJob: Codable, Identifiable {
     let originalSizeBytes: Int64
     let compressedSizeBytes: Int64
     let completedAt: String?
+    let crf: Int?
 
     var id: String { jobId }
 
@@ -73,4 +74,5 @@ struct UploadQueueItem: Codable, Equatable {
     let localId: String
     let sizeBytes: Int64
     let filename: String
+    var previousCrf: Int?   // nil = never encoded; non-nil = previously encoded at this CRF
 }

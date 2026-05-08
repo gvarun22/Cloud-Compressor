@@ -108,7 +108,7 @@ public class StartEncoding(
                 $"/tmp/output/{blobName} && " +
                 $"(MP4Box -add /tmp/output/{blobName} -add /tmp/input.{ext}#3 -out /tmp/output/{blobName}.merged 2>/dev/null && mv /tmp/output/{blobName}.merged /tmp/output/{blobName} || rm -f /tmp/output/{blobName}.merged) && " +
                 $"exiftool -overwrite_original -TagsFromFile /tmp/input.{ext} '-QuickTime:all>QuickTime:all' /tmp/output/{blobName} && " +
-                $"exiftool -overwrite_original '-Comment=cloudcompressor:crf{crf}:h265:veryfast:hvc1:cp' /tmp/output/{blobName} && " +
+                $"exiftool -overwrite_original \"-Comment=cloudcompressor:v1:crf{crf}:$(date -u +%Y-%m-%dT%H:%M:%SZ)\" /tmp/output/{blobName} && " +
                 $"curl -sf -X PUT " +
                 $"-H 'x-ms-blob-type: BlockBlob' " +
                 $"-H 'Content-Type: application/octet-stream' " +
