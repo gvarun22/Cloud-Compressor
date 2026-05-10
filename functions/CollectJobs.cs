@@ -112,14 +112,38 @@ public class CollectJobs(BlobServiceClient blobService, TableServiceClient table
             var outputSize = (await outputBlob.GetPropertiesAsync()).Value.ContentLength;
             if (outputSize == 0) throw new Exception("Output blob is empty");
 
+            var originalSize = job.GetInt64("originalSizeBytes") ?? 0L;
+            log.LogInformation("Output blob: {size} bytes (original: {orig} bytes)",
+                outputSize, originalSize);
+
+            // If encoding didn't reduce the file size, discard the output — no point replacing
+            // the original with a larger or equal file. Mark no_gain so the iOS app acknowledges
+            // and permanently skips the original without downloading anything.
+            if (originalSize > 0 && outputSize >= originalSize)
+            {
+                log.LogWarning("Job {jobId}: output ({out} bytes) >= original ({orig} bytes) — discarding.",
+                    jobId, outputSize, originalSize);
+
+                await aci.DeleteAsync(WaitUntil.Started);
+                try { await blobService.GetBlobContainerClient("input").GetBlobClient(blobName).DeleteAsync(); }
+                catch { }
+                try { await outputBlob.DeleteAsync(); } catch { }
+
+                var noGain = new TableEntity("jobs", jobId)
+                {
+                    ["status"]              = "no_gain",
+                    ["compressedSizeBytes"] = outputSize,
+                    ["completedAt"]         = DateTimeOffset.UtcNow.ToString("o")
+                };
+                await _table.UpdateEntityAsync(noGain, ETag.All, TableUpdateMode.Merge);
+                return;
+            }
+
             var originalName = job.GetString("originalName") ?? blobName;
             await outputBlob.SetHttpHeadersAsync(new BlobHttpHeaders
             {
                 ContentDisposition = $"attachment; filename=\"{originalName}\""
             });
-
-            log.LogInformation("Output blob: {size} bytes (original: {orig} bytes)",
-                outputSize, job.GetInt64("originalSizeBytes"));
 
             await aci.DeleteAsync(WaitUntil.Started);
             try { await blobService.GetBlobContainerClient("input").GetBlobClient(blobName).DeleteAsync(); }

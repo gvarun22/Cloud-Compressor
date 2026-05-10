@@ -87,7 +87,7 @@ final class SyncEngine {
         do { jobs = try await azure.getCompletedJobs() }
         catch { status = .failed("Download check failed: \(error.localizedDescription)"); return }
 
-        // Re-queue any failed jobs so they get picked up by the next upload batch.
+        // Re-queue failed jobs (encoding failed — try again).
         let failedJobs = jobs.filter { $0.status == "failed" }
         for job in failedJobs {
             if let localId = job.localId, !localId.isEmpty {
@@ -95,7 +95,19 @@ final class SyncEngine {
             }
         }
 
-        let readyJobs = jobs.filter { $0.status != "failed" }
+        // Permanently skip no_gain jobs — encoding made the file larger; keep the original.
+        let noGainJobs = jobs.filter { $0.status == "no_gain" }
+        for job in noGainJobs {
+            if let localId = job.localId, !localId.isEmpty {
+                settings.markProcessedLocal(localId)
+            }
+            if let photoId = job.photoId, !photoId.isEmpty {
+                settings.markProcessed(photoId)
+            }
+            try? await azure.acknowledgeJob(jobId: job.jobId)
+        }
+
+        let readyJobs = jobs.filter { $0.status != "failed" && $0.status != "no_gain" }
         guard !readyJobs.isEmpty else { return }
 
         lastSyncResults = []  // clear only when new downloads are actually starting
@@ -292,7 +304,7 @@ final class SyncEngine {
     func scheduleBackgroundSync() {
         let request = BGProcessingTaskRequest(identifier: Self.bgTaskIdentifier)
         request.requiresNetworkConnectivity = true
-        request.requiresExternalPower       = false
+        request.requiresExternalPower       = true
         request.earliestBeginDate           = settings.quietWindowEnabled
             ? settings.nextQuietWindowStart()
             : Date(timeIntervalSinceNow: 15 * 60)

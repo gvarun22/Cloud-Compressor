@@ -76,15 +76,36 @@ public class GetCompletedJobs(BlobServiceClient blobService, TableServiceClient 
         {
             results.Add(new
             {
-                status    = "failed",
-                jobId     = job.RowKey,
-                downloadUrl = (string?)null,
-                photoId   = job.GetString("photoId"),
-                localId   = job.GetString("localId"),
-                originalName = job.GetString("originalName"),
+                status              = "failed",
+                jobId               = job.RowKey,
+                downloadUrl         = (string?)null,
+                photoId             = job.GetString("photoId"),
+                localId             = job.GetString("localId"),
+                originalName        = job.GetString("originalName"),
                 originalSizeBytes   = job.GetInt64("originalSizeBytes") ?? 0L,
                 compressedSizeBytes = 0L,
-                completedAt = (string?)null
+                completedAt         = (string?)null
+            });
+        }
+
+        // Return no_gain jobs so the iOS app can permanently skip these originals (encoding
+        // increased the file size — not worth downloading).
+        var noGainFilter = string.IsNullOrEmpty(deviceId)
+            ? "PartitionKey eq 'jobs' and status eq 'no_gain'"
+            : $"PartitionKey eq 'jobs' and status eq 'no_gain' and deviceId eq '{deviceId}'";
+        await foreach (var job in _table.QueryAsync<TableEntity>(filter: noGainFilter))
+        {
+            results.Add(new
+            {
+                status              = "no_gain",
+                jobId               = job.RowKey,
+                downloadUrl         = (string?)null,
+                photoId             = job.GetString("photoId"),
+                localId             = job.GetString("localId"),
+                originalName        = job.GetString("originalName"),
+                originalSizeBytes   = job.GetInt64("originalSizeBytes") ?? 0L,
+                compressedSizeBytes = job.GetInt64("compressedSizeBytes") ?? 0L,
+                completedAt         = job.GetString("completedAt")
             });
         }
 
