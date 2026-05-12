@@ -31,7 +31,7 @@ public class GetUploadUrl(BlobServiceClient blobService, TableServiceClient tabl
         int crf;
         if (string.IsNullOrEmpty(crfParam))
         {
-            crf = 24;
+            crf = 22;
         }
         else if (!int.TryParse(crfParam, out crf) || crf is not (18 or 22 or 24))
         {

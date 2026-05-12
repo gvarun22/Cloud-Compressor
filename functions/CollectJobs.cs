@@ -39,7 +39,15 @@ public class CollectJobs(BlobServiceClient blobService, TableServiceClient table
 
             if (job.GetString("status") == "pending" && string.IsNullOrEmpty(aciName))
             {
-                log.LogInformation("Job {jobId}: pending, no ACI yet — skipping.", jobId);
+                // Blob never arrived — time out after 2 hours so the job doesn't stick forever.
+                var pendingAge = (DateTimeOffset.UtcNow - DateTimeOffset.Parse(job.GetString("startedAt")!)).TotalMinutes;
+                if (pendingAge < 120)
+                {
+                    log.LogInformation("Job {jobId}: pending, no ACI yet ({age:F0}min) — skipping.", jobId, pendingAge);
+                    continue;
+                }
+                log.LogWarning("Job {jobId}: pending for {age:F0}min with no blob — marking failed.", jobId, pendingAge);
+                await MarkFailed(job, "blob never uploaded — upload timed out");
                 continue;
             }
 

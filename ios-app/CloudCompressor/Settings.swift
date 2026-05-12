@@ -144,7 +144,7 @@ final class Settings {
            let queue = try? JSONDecoder().decode([UploadQueueItem].self, from: data) {
             uploadQueue = queue
         }
-        crf                  = ud.object(forKey: "crf") == nil ? 24 : ud.integer(forKey: "crf")
+        crf                  = ud.object(forKey: "crf") == nil ? 22 : ud.integer(forKey: "crf")
         if let data = ud.data(forKey: "compressedCrfs"),
            let crfs = try? JSONDecoder().decode([String: Int].self, from: data) {
             compressedCrfs = crfs
