@@ -49,10 +49,12 @@ final class SyncEngine {
 
     // MARK: - Public entry points
 
-    // Called on app open — downloads completed jobs, shows delete prompts.
+    // Called on app open — pulls remote hash state, downloads completed jobs.
     func downloadOnly() async {
         guard !isRunning else { return }
+        await pullRemoteHashes()
         await downloadPhase()
+        await pushPendingHashes()
         if case .running = status { status = .completed(Date()) }
     }
 
@@ -76,6 +78,39 @@ final class SyncEngine {
         uploadFilenames = [:]
         await uploadPhase()
         if case .running = status { status = .completed(Date()) }
+    }
+
+    // MARK: - Remote hash sync
+
+    private func pullRemoteHashes() async {
+        let since = Settings.loadLastSyncedAt()
+        do {
+            let entries = try await azure.pullProcessedHashes(since: since)
+            if !entries.isEmpty { settings.mergeRemoteHashes(entries) }
+
+            // First-ever sync: push any locally-known hashes not yet in the remote store.
+            // This migrates existing processedHashes data so other devices see it immediately.
+            if since == nil && !settings.processedHashes.isEmpty {
+                let remoteKeys = Set(entries.map { $0.thumbprint })
+                let toMigrate  = settings.processedHashes
+                    .filter { !remoteKeys.contains($0.key) }
+                    .map    { ProcessedHashEntry(thumbprint: $0.key, crf: $0.value,
+                                                processedAt: Settings.iso8601.string(from: Date()),
+                                                filename: nil) }
+                if !toMigrate.isEmpty { try? await azure.pushProcessedHashes(toMigrate) }
+            }
+
+            Settings.saveLastSyncedAt(Date())
+        } catch {
+            print("[SyncEngine] Hash pull failed: \(error)")
+        }
+    }
+
+    private func pushPendingHashes() async {
+        let pending = settings.takePendingHashPushes()
+        guard !pending.isEmpty else { return }
+        do    { try await azure.pushProcessedHashes(pending) }
+        catch { print("[SyncEngine] Hash push failed: \(error)") }
     }
 
     // MARK: - Download phase
@@ -102,7 +137,7 @@ final class SyncEngine {
                 settings.markProcessedLocal(localId)
             }
             if let photoId = job.photoId, !photoId.isEmpty {
-                settings.markProcessed(photoId)
+                settings.markProcessed(photoId, crf: 0)
             }
             try? await azure.acknowledgeJob(jobId: job.jobId)
         }
@@ -136,7 +171,13 @@ final class SyncEngine {
 
             let savedId = try await photo.saveVideoToLibrary(from: named)
             if let savedId {
-                settings.markCompressed(savedId, crf: job.crf ?? settings.crf)
+                let usedCrf = job.crf ?? settings.crf
+                settings.markCompressed(savedId, crf: usedCrf)
+                // Hash the compressed copy so it's recognised even if evicted from local storage.
+                if let (_, res) = await photo.fetchAssetAndResource(localIdentifier: savedId),
+                   let compHash = try? await photo.contentHash(for: res) {
+                    settings.markProcessed(compHash, crf: usedCrf, filename: filename)
+                }
                 lastSyncResults.append(SyncedVideo(
                     filename: filename,
                     originalSizeBytes: job.originalSizeBytes,
@@ -149,9 +190,9 @@ final class SyncEngine {
                 }
             }
 
-            // Mark processed so the original is never re-uploaded.
+            // Mark original's hash processed (guard if deletion fails — crf=0 means "skip always").
             if let photoId = job.photoId, !photoId.isEmpty {
-                settings.markProcessed(photoId)
+                settings.markProcessed(photoId, crf: 0, filename: filename)
             }
             if let localId = job.localId, !localId.isEmpty {
                 settings.markProcessedLocal(localId)
@@ -207,9 +248,12 @@ final class SyncEngine {
             }
             guard let hash = try? await photo.contentHash(for: resource) else { continue }
             if activeLocks.contains(hash) { continue }      // in-flight from previous session
-            if settings.processedPhotoIds.contains(hash) {
-                settings.markProcessedLocal(item.localId)
-                continue
+            if let storedCrf = settings.processedHashes[hash] {
+                if storedCrf == 0 || storedCrf == settings.crf {
+                    settings.markProcessedLocal(item.localId)
+                    continue
+                }
+                // storedCrf > 0 and != settings.crf → compressed at different quality, re-encode
             }
             toUpload.append((localId: item.localId, filename: item.filename, hash: hash))
         }

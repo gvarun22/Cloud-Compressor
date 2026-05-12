@@ -30,16 +30,46 @@ final class Settings {
 
     let deviceId: String
 
-    // MARK: - Processed originals (persisted to prevent re-upload after compression)
+    // MARK: - Processed hashes (synced with remote — survives reinstall and works across devices)
+    //
+    // processedHashes: content hash → CRF used
+    //   crf == 0  → original video was uploaded (original now deleted; guard against re-upload if deletion failed)
+    //   crf  > 0  → compressed copy at this CRF (skip if same CRF; re-encode if different)
+    //
+    // processedLocalIds: PHAsset.localIdentifier → fast device-local dedup (not synced, device-specific)
+    // compressedCrfs:    localId of compressed copy → CRF (device-local; drives re-encode trigger on CRF change)
+    // uploadQueue:       two-tier sorted queue (unencoded first, re-encode candidates second)
 
-    private(set) var processedPhotoIds: Set<String> = []        // content hashes (legacy dedup)
-    private(set) var processedLocalIds: Set<String> = []        // PHAsset.localIdentifier (fast dedup)
-    private(set) var compressedCrfs: [String: Int] = [:]        // localId of compressed copy → CRF used
-    private(set) var uploadQueue: [UploadQueueItem] = []         // two-tier: unencoded first, re-encode second
+    private(set) var processedHashes: [String: Int] = [:]
+    private(set) var processedLocalIds: Set<String> = []
+    private(set) var compressedCrfs: [String: Int] = [:]
+    private(set) var uploadQueue: [UploadQueueItem] = []
 
-    func markProcessed(_ photoId: String) {
-        processedPhotoIds.insert(photoId)
-        UserDefaults.standard.set(Array(processedPhotoIds), forKey: "processedPhotoIds")
+    // Accumulated entries waiting to be pushed to the remote hash store.
+    private(set) var pendingHashPushes: [ProcessedHashEntry] = []
+
+    func markProcessed(_ hash: String, crf: Int = 0, filename: String? = nil) {
+        processedHashes[hash] = crf
+        persistProcessedHashes()
+        pendingHashPushes.append(ProcessedHashEntry(
+            thumbprint:  hash,
+            crf:         crf,
+            processedAt: Self.iso8601.string(from: Date()),
+            filename:    filename
+        ))
+    }
+
+    func mergeRemoteHashes(_ entries: [ProcessedHashEntry]) {
+        for entry in entries {
+            processedHashes[entry.thumbprint] = entry.crf
+        }
+        persistProcessedHashes()
+    }
+
+    func takePendingHashPushes() -> [ProcessedHashEntry] {
+        let pending = pendingHashPushes
+        pendingHashPushes = []
+        return pending
     }
 
     func markProcessedLocal(_ localId: String) {
@@ -66,14 +96,23 @@ final class Settings {
     }
 
     func clearProcessed() {
-        processedPhotoIds = []
-        processedLocalIds = []
-        compressedCrfs    = [:]
-        uploadQueue       = []
+        processedHashes    = [:]
+        processedLocalIds  = []
+        compressedCrfs     = [:]
+        uploadQueue        = []
+        pendingHashPushes  = []
+        UserDefaults.standard.removeObject(forKey: "processedHashes")
         UserDefaults.standard.removeObject(forKey: "processedPhotoIds")
         UserDefaults.standard.removeObject(forKey: "processedLocalIds")
         UserDefaults.standard.removeObject(forKey: "compressedCrfs")
         UserDefaults.standard.removeObject(forKey: "uploadQueue")
+        Self.saveLastSyncedAt(nil)
+    }
+
+    private func persistProcessedHashes() {
+        if let data = try? JSONEncoder().encode(processedHashes) {
+            UserDefaults.standard.set(data, forKey: "processedHashes")
+        }
     }
 
     private func persistCompressedCrfs() {
@@ -138,23 +177,37 @@ final class Settings {
         autoSyncOnOpen       = ud.object(forKey: "autoSyncOnOpen")   == nil ? true : ud.bool(forKey: "autoSyncOnOpen")
         maxConcurrentUploads = ud.object(forKey: "maxConcurrentUploads") == nil ? 2 : ud.integer(forKey: "maxConcurrentUploads")
         maxUploadsPerSync    = ud.object(forKey: "maxUploadsPerSync")    == nil ? 5 : ud.integer(forKey: "maxUploadsPerSync")
-        processedPhotoIds    = Set(ud.stringArray(forKey: "processedPhotoIds") ?? [])
         processedLocalIds    = Set(ud.stringArray(forKey: "processedLocalIds") ?? [])
         if let data = ud.data(forKey: "uploadQueue"),
            let queue = try? JSONDecoder().decode([UploadQueueItem].self, from: data) {
             uploadQueue = queue
         }
-        crf                  = ud.object(forKey: "crf") == nil ? 22 : ud.integer(forKey: "crf")
+        crf = ud.object(forKey: "crf") == nil ? 22 : ud.integer(forKey: "crf")
         if let data = ud.data(forKey: "compressedCrfs"),
            let crfs = try? JSONDecoder().decode([String: Int].self, from: data) {
             compressedCrfs = crfs
         }
-        deviceId             = Settings.loadOrCreateDeviceId()
-        quietWindowEnabled   = ud.bool(forKey: "quietWindowEnabled")
-        quietWindowStartHour = ud.object(forKey: "quietWindowStartHour")   == nil ? 2 : ud.integer(forKey: "quietWindowStartHour")
+        deviceId           = Settings.loadOrCreateDeviceId()
+        quietWindowEnabled = ud.bool(forKey: "quietWindowEnabled")
+        quietWindowStartHour   = ud.object(forKey: "quietWindowStartHour")   == nil ? 2  : ud.integer(forKey: "quietWindowStartHour")
         quietWindowStartMinute = ud.integer(forKey: "quietWindowStartMinute")
-        quietWindowEndHour   = ud.object(forKey: "quietWindowEndHour")     == nil ? 6 : ud.integer(forKey: "quietWindowEndHour")
-        quietWindowEndMinute = ud.integer(forKey: "quietWindowEndMinute")
+        quietWindowEndHour     = ud.object(forKey: "quietWindowEndHour")     == nil ? 6  : ud.integer(forKey: "quietWindowEndHour")
+        quietWindowEndMinute   = ud.integer(forKey: "quietWindowEndMinute")
+
+        // Load processedHashes (new store). Migrate old processedPhotoIds entries on first run.
+        if let data = ud.data(forKey: "processedHashes"),
+           let hashes = try? JSONDecoder().decode([String: Int].self, from: data) {
+            processedHashes = hashes
+        } else {
+            // One-time migration from legacy Set<String> — import as crf=0 (original hashes)
+            let legacy = Set(ud.stringArray(forKey: "processedPhotoIds") ?? [])
+            if !legacy.isEmpty {
+                processedHashes = Dictionary(uniqueKeysWithValues: legacy.map { ($0, 0) })
+                if let data = try? JSONEncoder().encode(processedHashes) {
+                    ud.set(data, forKey: "processedHashes")
+                }
+            }
+        }
     }
 
     // MARK: - Helpers
@@ -169,7 +222,6 @@ final class Settings {
         if startMins <= endMins {
             return nowMins >= startMins && nowMins < endMins
         } else {
-            // Window wraps midnight (e.g. 23:00–05:00)
             return nowMins >= startMins || nowMins < endMins
         }
     }
@@ -189,12 +241,48 @@ final class Settings {
         UserDefaults.standard.set(value, forKey: key)
     }
 
-    private static func loadOrCreateDeviceId() -> String {
-        let account = "cloudcompressor.deviceId" as CFString
+    // MARK: - Keychain helpers
+
+    private static let deviceIdAccount   = "cloudcompressor.deviceId"   as CFString
+    private static let lastSyncedAccount = "cloudcompressor.lastSynced" as CFString
+
+    static let iso8601: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        return f
+    }()
+
+    static func loadLastSyncedAt() -> Date? {
         let query: [CFString: Any] = [
-            kSecClass:       kSecClassGenericPassword,
-            kSecAttrAccount: account,
-            kSecReturnData:  true
+            kSecClass: kSecClassGenericPassword, kSecAttrAccount: lastSyncedAccount, kSecReturnData: true
+        ]
+        var result: AnyObject?
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+              let data = result as? Data,
+              let str  = String(data: data, encoding: .utf8) else { return nil }
+        return iso8601.date(from: str)
+    }
+
+    static func saveLastSyncedAt(_ date: Date?) {
+        let data: Data? = date.flatMap { Data(iso8601.string(from: $0).utf8) }
+        let query: [CFString: Any] = [kSecClass: kSecClassGenericPassword, kSecAttrAccount: lastSyncedAccount]
+        if let data {
+            let attrs: [CFString: Any] = [kSecValueData: data]
+            if SecItemUpdate(query as CFDictionary, attrs as CFDictionary) == errSecItemNotFound {
+                var add = query
+                add[kSecValueData] = data
+                add[kSecAttrAccessible] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+                SecItemAdd(add as CFDictionary, nil)
+            }
+        } else {
+            SecItemDelete(query as CFDictionary)
+        }
+    }
+
+    private static func loadOrCreateDeviceId() -> String {
+        let account = deviceIdAccount
+        let query: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword, kSecAttrAccount: account, kSecReturnData: true
         ]
         var result: AnyObject?
         if SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
@@ -202,14 +290,13 @@ final class Settings {
            let stored = String(data: data, encoding: .utf8) {
             return stored
         }
-        // Migrate from UserDefaults (previous storage) so existing Azure jobs still match
         let generated = UserDefaults.standard.string(forKey: "deviceId") ?? UUID().uuidString
         UserDefaults.standard.removeObject(forKey: "deviceId")
         let add: [CFString: Any] = [
-            kSecClass:            kSecClassGenericPassword,
-            kSecAttrAccount:      account,
-            kSecValueData:        Data(generated.utf8),
-            kSecAttrAccessible:   kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+            kSecClass:          kSecClassGenericPassword,
+            kSecAttrAccount:    account,
+            kSecValueData:      Data(generated.utf8),
+            kSecAttrAccessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         ]
         SecItemAdd(add as CFDictionary, nil)
         return generated

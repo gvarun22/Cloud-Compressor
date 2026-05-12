@@ -61,6 +61,28 @@ class AzureService {
         try assertOK(response)
     }
 
+    func pullProcessedHashes(since: Date?) async throws -> [ProcessedHashEntry] {
+        var comps = URLComponents(string: "\(Settings.shared.baseURL)/Sync-Processed")!
+        if let since {
+            comps.queryItems = [URLQueryItem(name: "since", value: Settings.iso8601.string(from: since))]
+        }
+        var req = URLRequest(url: comps.url!)
+        authHeaders.forEach { req.setValue($1, forHTTPHeaderField: $0) }
+        let (data, response) = try await URLSession.shared.data(for: req)
+        try assertOK(response)
+        return try JSONDecoder().decode([ProcessedHashEntry].self, from: data)
+    }
+
+    func pushProcessedHashes(_ entries: [ProcessedHashEntry]) async throws {
+        var req = URLRequest(url: URL(string: "\(Settings.shared.baseURL)/Sync-Processed")!)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        authHeaders.forEach { req.setValue($1, forHTTPHeaderField: $0) }
+        req.httpBody = try JSONEncoder().encode(entries)
+        let (_, response) = try await URLSession.shared.data(for: req)
+        try assertOK(response)
+    }
+
     func uploadFile(at fileURL: URL, to sasURL: URL, progress: @escaping (Double) -> Void) async throws {
         var req = URLRequest(url: sasURL)
         req.httpMethod = "PUT"

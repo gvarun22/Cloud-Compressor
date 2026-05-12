@@ -65,7 +65,7 @@ struct SettingsView: View {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Processed videos")
-                            Text("\(settings.processedPhotoIds.count) original(s) marked as done")
+                            Text("\(settings.processedHashes.count) video(s) in processed history")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()

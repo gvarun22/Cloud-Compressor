@@ -76,3 +76,10 @@ struct UploadQueueItem: Codable, Equatable {
     let filename: String
     var previousCrf: Int?   // nil = never encoded; non-nil = previously encoded at this CRF
 }
+
+struct ProcessedHashEntry: Codable {
+    let thumbprint: String
+    let crf: Int            // 0 = original video (uploaded and deleted); >0 = compressed copy at this CRF
+    let processedAt: String // ISO8601 UTC e.g. "2026-05-11T09:00:00Z"
+    let filename: String?
+}
