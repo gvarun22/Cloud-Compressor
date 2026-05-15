@@ -28,12 +28,14 @@ public class AcknowledgeJob(BlobServiceClient blobService, TableServiceClient ta
         var status = job.GetString("status");
         if (status == "retrieved")
             return new OkObjectResult($"Job {jobId} already acknowledged");
-        if (status != "ready")
-            return new ObjectResult($"Job {jobId} is in status '{status}', expected 'ready'")
+        if (status != "ready" && status != "failed" && status != "no_gain" && status != "permanent_failure")
+            return new ObjectResult($"Job {jobId} is in status '{status}', expected ready/failed/no_gain/permanent_failure")
                 { StatusCode = (int)HttpStatusCode.Conflict };
 
+        // Only 'ready' jobs have an output blob to clean up; failed/no_gain/permanent_failure
+        // already had their input + output blobs deleted by Collect-Jobs.
         var outputBlobName = job.GetString("outputBlobName");
-        if (!string.IsNullOrEmpty(outputBlobName))
+        if (status == "ready" && !string.IsNullOrEmpty(outputBlobName))
         {
             try { await blobService.GetBlobContainerClient("output")
                     .GetBlobClient(outputBlobName).DeleteAsync(); }

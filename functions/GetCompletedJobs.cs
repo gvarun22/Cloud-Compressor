@@ -109,6 +109,27 @@ public class GetCompletedJobs(BlobServiceClient blobService, TableServiceClient 
             });
         }
 
+        // Return permanent_failure jobs so iOS can permanently skip files that have failed
+        // encoding 3+ times (likely an unsupported codec or corrupt source).
+        var permFailFilter = string.IsNullOrEmpty(deviceId)
+            ? "PartitionKey eq 'jobs' and status eq 'permanent_failure'"
+            : $"PartitionKey eq 'jobs' and status eq 'permanent_failure' and deviceId eq '{deviceId}'";
+        await foreach (var job in _table.QueryAsync<TableEntity>(filter: permFailFilter))
+        {
+            results.Add(new
+            {
+                status              = "permanent_failure",
+                jobId               = job.RowKey,
+                downloadUrl         = (string?)null,
+                photoId             = job.GetString("photoId"),
+                localId             = job.GetString("localId"),
+                originalName        = job.GetString("originalName"),
+                originalSizeBytes   = job.GetInt64("originalSizeBytes") ?? 0L,
+                compressedSizeBytes = 0L,
+                completedAt         = job.GetString("failedAt")
+            });
+        }
+
         return new OkObjectResult(results);
     }
 }

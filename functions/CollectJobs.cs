@@ -177,7 +177,8 @@ public class CollectJobs(BlobServiceClient blobService, TableServiceClient table
 
     private async Task HandleFailure(TableEntity job, ContainerGroupResource? aci, string reason, ILogger log)
     {
-        var jobId    = job.RowKey;
+        var jobId   = job.RowKey;
+        var photoId = job.GetString("photoId");
         log.LogWarning("Job {jobId} failed: {reason}", jobId, reason);
 
         if (aci != null)
@@ -189,11 +190,28 @@ public class CollectJobs(BlobServiceClient blobService, TableServiceClient table
         try { await blobService.GetBlobContainerClient("input").GetBlobClient(blobName).DeleteAsync(); }
         catch { }
 
+        // Count prior failed/permanent_failure jobs for the same content. If this is the
+        // 3rd attempt (2 priors + this one), give up permanently so iOS stops re-queueing.
+        var priorFailures = 0;
+        if (!string.IsNullOrEmpty(photoId))
+        {
+            var filter = $"PartitionKey eq 'jobs' and photoId eq '{photoId}' and " +
+                         $"(status eq 'failed' or status eq 'permanent_failure') and RowKey ne '{jobId}'";
+            await foreach (var _ in _table.QueryAsync<TableEntity>(filter: filter, select: new[] { "RowKey" }))
+                priorFailures++;
+        }
+
+        var finalStatus = priorFailures >= 2 ? "permanent_failure" : "failed";
+        if (finalStatus == "permanent_failure")
+            log.LogWarning("Job {jobId}: 3rd failure for photoId {photoId} — marking permanent_failure.",
+                jobId, photoId);
+
         var update = new TableEntity("jobs", jobId)
         {
-            ["status"]        = "failed",
+            ["status"]        = finalStatus,
             ["failedAt"]      = DateTimeOffset.UtcNow.ToString("o"),
-            ["failureReason"] = reason
+            ["failureReason"] = reason,
+            ["failureCount"]  = priorFailures + 1
         };
         await _table.UpdateEntityAsync(update, ETag.All, TableUpdateMode.Merge);
     }

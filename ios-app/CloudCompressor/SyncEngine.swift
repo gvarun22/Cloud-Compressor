@@ -122,7 +122,8 @@ final class SyncEngine {
         do { jobs = try await azure.getCompletedJobs() }
         catch { status = .failed("Download check failed: \(error.localizedDescription)"); return }
 
-        // Re-queue failed jobs (encoding failed — try again).
+        // Re-queue transient failures — encoding failed once or twice; try again next batch.
+        // Server promotes these to permanent_failure after 3 attempts (handled below).
         let failedJobs = jobs.filter { $0.status == "failed" }
         for job in failedJobs {
             if let localId = job.localId, !localId.isEmpty {
@@ -130,9 +131,11 @@ final class SyncEngine {
             }
         }
 
-        // Permanently skip no_gain jobs — encoding made the file larger; keep the original.
-        let noGainJobs = jobs.filter { $0.status == "no_gain" }
-        for job in noGainJobs {
+        // Permanently skip jobs the pipeline cannot help with:
+        //   no_gain           → encoding made the file larger; keep the original
+        //   permanent_failure → encoding failed 3+ times; likely unsupported codec
+        let skipPermanentlyJobs = jobs.filter { $0.status == "no_gain" || $0.status == "permanent_failure" }
+        for job in skipPermanentlyJobs {
             if let localId = job.localId, !localId.isEmpty {
                 settings.markProcessedLocal(localId)
             }
@@ -142,7 +145,9 @@ final class SyncEngine {
             try? await azure.acknowledgeJob(jobId: job.jobId)
         }
 
-        let readyJobs = jobs.filter { $0.status != "failed" && $0.status != "no_gain" }
+        let readyJobs = jobs.filter {
+            $0.status != "failed" && $0.status != "no_gain" && $0.status != "permanent_failure"
+        }
         guard !readyJobs.isEmpty else { return }
 
         lastSyncResults = []  // clear only when new downloads are actually starting

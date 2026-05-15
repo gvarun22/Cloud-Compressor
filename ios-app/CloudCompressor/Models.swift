@@ -1,7 +1,7 @@
 import Foundation
 
 struct CompletedJob: Codable, Identifiable {
-    let status: String?          // "ready" or "failed"
+    let status: String?          // "ready", "failed", "no_gain", or "permanent_failure"
     let jobId: String
     let downloadUrl: String?
     let photoId: String?
